@@ -37,10 +37,11 @@ import socket
 import sys
 import traceback
 
-# This file lives in modules/multiagent-tools/hooks/, store.py lives one dir up.
+# Hook lives in hooks/, store.py + discord_card.py live one dir up.
 _MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _MODULE_DIR)
 import store  # noqa: E402
+import discord_card  # noqa: E402
 
 LOG_PATH = os.path.join(store.DATA_DIR, "stop_hook.log")
 
@@ -313,16 +314,9 @@ def _find_journal(jid: int) -> dict | None:
 # ─────────── Discord card poster ───────────
 #
 # When a save/edit/delete/journal action fires, post a rendered confirmation
-# card to the Discord channel where the user requested it. Replaces the bot's
-# in-reply rendering, which was unreliable (depended on the bot remembering
-# to render). Failure modes (no Discord origin, no token, HTTP error) all
-# silently log + skip — the action already landed in the store.
-#
-# Multiagent-tools agnostic about which bot. Token resolution order:
-#   $MULTIAGENT_DISCORD_TOKEN   — explicit override
-#   $CLAUDE_PLUGIN_STATE_DIR/.env DISCORD_BOT_TOKEN
-#   $CLAUDE_CONFIG_DIR/channels/discord/.env DISCORD_BOT_TOKEN
-#   ~/.claude/channels/discord/.env DISCORD_BOT_TOKEN
+# card to the Discord channel where the user requested it. Card rendering and
+# posting live in discord_card.py so the CLI can emit byte-identical cards
+# when invoked with --discord-* flags.
 
 _CHANNEL_TAG_RE = re.compile(
     r'<channel\s+source=["\'](?:plugin:discord:discord|discord)["\']'
@@ -348,179 +342,6 @@ def _parse_discord_origin(user_text: str) -> tuple[str, str] | None:
     return m.group(1), m.group(2)
 
 
-def _read_bot_token() -> str | None:
-    """Read DISCORD_BOT_TOKEN.
-
-    Resolution order:
-      1. $MULTIAGENT_DISCORD_TOKEN — explicit token override
-      2. $DISCORD_STATE_DIR/.env — multi-agent setups where each bot has
-         its own state dir but shares CLAUDE_CONFIG_DIR. Takes priority
-         over CLAUDE_CONFIG_DIR for that reason.
-      3. $CLAUDE_PLUGIN_STATE_DIR/.env
-      4. $CLAUDE_CONFIG_DIR/channels/discord/.env
-      5. ~/.claude/channels/discord/.env
-    """
-    explicit = os.environ.get("MULTIAGENT_DISCORD_TOKEN", "").strip()
-    if explicit:
-        return explicit
-
-    env_path: str | None = None
-    state_dir = os.environ.get("DISCORD_STATE_DIR", "")
-    if state_dir:
-        env_path = os.path.join(state_dir, ".env")
-    else:
-        plugin_dir = os.environ.get("CLAUDE_PLUGIN_STATE_DIR", "")
-        if plugin_dir:
-            env_path = os.path.join(plugin_dir, ".env")
-        elif os.environ.get("CLAUDE_CONFIG_DIR"):
-            env_path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "channels", "discord", ".env")
-        else:
-            env_path = os.path.expanduser("~/.claude/channels/discord/.env")
-
-    if not env_path or not os.path.exists(env_path):
-        return None
-    try:
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DISCORD_BOT_TOKEN="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        return None
-    return None
-
-
-def _truncate_body(text: str, lim: int = 600) -> str:
-    """Trim long bodies for the card. Cards are visible-confirmation, not full
-    reproduction — link to the web UI for full content."""
-    if len(text) <= lim:
-        return text
-    return text[: lim - 1].rstrip() + "…"
-
-
-def _italicize_body(text: str) -> str:
-    """Wrap each non-empty line in `*...*` so the body renders italic on
-    Discord. Plain italic asterisk avoids the bare `>` glyphs the blockquote
-    variant left dangling on mobile when paragraphs had blank-line breaks.
-    Empty lines pass through as paragraph breaks.
-
-    Pre-existing `**bold**` markdown in the body composes naturally with the
-    outer italic — e.g. `**1955 ...**` becomes `***1955 ...***` which Discord
-    renders as bold-italic.
-    """
-    out: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            out.append("")
-        else:
-            out.append(f"*{stripped}*")
-    return "\n".join(out)
-
-
-def _format_card(action: dict) -> str | None:
-    """Render one action as a Discord-friendly card. Returns None if the
-    action has no entry to render (e.g. delete of a missing id).
-
-    Format conventions: header with emoji + bold; meta line with italics +
-    inline-code values; body in italics (no blockquote — `>` looked broken
-    on Discord mobile when bodies had paragraph breaks).
-    """
-    kind = action.get("kind")
-    if kind == "memory_saved":
-        e = action.get("entry") or {}
-        if not e.get("id"):
-            return None
-        tags = ", ".join(e.get("tags") or []) or "—"
-        about = ", ".join(e.get("about") or []) or "—"
-        body = _italicize_body(_truncate_body(e.get("text", "")))
-        return (
-            f"💾 **Memory #{e['id']} saved**\n"
-            f"*type:* `{e.get('type','?')}` · "
-            f"*name:* `{e.get('name','—') or '—'}` · "
-            f"*tags:* `{tags}` · *about:* `{about}`\n\n"
-            f"{body}"
-        )
-    if kind == "memory_edited":
-        before = action.get("before") or {}
-        after = action.get("after") or {}
-        mid = action.get("id")
-        body = _italicize_body(_truncate_body(after.get("text", "")))
-        return (
-            f"✏️ **Memory #{mid} edited**\n"
-            f"*name:* `{after.get('name', before.get('name', '—')) or '—'}`\n\n"
-            f"{body}"
-        )
-    if kind == "memory_deleted":
-        before = action.get("before") or {}
-        if not before:
-            return None
-        return (
-            f"🗑️ **Memory #{before.get('id', '?')} deleted**\n"
-            f"*was:* `{before.get('type','?')}` · `{before.get('name','—') or '—'}`"
-        )
-    if kind == "journal_added":
-        e = action.get("entry") or {}
-        if not e.get("id"):
-            return None
-        tags = ", ".join(e.get("tags") or []) or "—"
-        body = _italicize_body(_truncate_body(e.get("text", "")))
-        return (
-            f"📓 **Journal #{e['id']} added**\n"
-            f"*tags:* `{tags}`\n\n"
-            f"{body}"
-        )
-    if kind == "journal_deleted":
-        before = action.get("before") or {}
-        if not before:
-            return None
-        return f"🗑️ **Journal #{before.get('id','?')} deleted**"
-    return None
-
-
-def _post_discord_message(token: str, channel_id: str, content: str,
-                          reply_to: str | None = None) -> bool:
-    """POST /channels/<id>/messages. Best-effort, single-shot, no retry — if
-    the network's flaky, the user sees no card; the action already landed in
-    the store. The log carries the failure for triage."""
-    import urllib.error
-    import urllib.request
-    body: dict = {
-        "content": content,
-        "allowed_mentions": {"parse": []},
-    }
-    if reply_to:
-        body["message_reference"] = {
-            "message_id": reply_to,
-            "fail_if_not_exists": False,
-        }
-    data = json.dumps(body).encode("utf-8")
-    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method="POST",
-        headers={
-            "Authorization": f"Bot {token}",
-            "Content-Type": "application/json",
-            "User-Agent": "multiagent-stop-hook (cards, 1.0)",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            return 200 <= resp.status < 300
-    except urllib.error.HTTPError as e:
-        try:
-            err_body = e.read()[:200].decode("utf-8", "replace")
-        except Exception:
-            err_body = ""
-        log(f"discord POST {channel_id} HTTP {e.code}: {err_body!r}")
-        return False
-    except Exception as e:
-        log(f"discord POST {channel_id} failed: {e}")
-        return False
-
-
 def post_action_cards(actions: list[dict], user_text: str) -> int:
     """For each action with renderable content, post a card to the Discord
     channel the user requested in. Returns count posted."""
@@ -528,22 +349,18 @@ def post_action_cards(actions: list[dict], user_text: str) -> int:
         return 0
     origin = _parse_discord_origin(user_text)
     if not origin:
-        # Stop hook fires for all assistant turns; only Discord-originated
-        # save requests get cards. Terminal saves are silent (the CLI itself
-        # already prints "Saved #N").
         return 0
     chat_id, msg_id = origin
-    token = _read_bot_token()
-    if not token:
-        log("discord card skipped: no DISCORD_BOT_TOKEN found")
-        return 0
     posted = 0
     for action in actions:
-        card = _format_card(action)
-        if not card:
-            continue
-        if _post_discord_message(token, chat_id, card, reply_to=msg_id):
+        ok, err = discord_card.post_action_card(
+            action, chat_id, reply_to=msg_id,
+            user_agent=f"multiagent-stop-hook ({BOT_NAME}, 1.1)",
+        )
+        if ok:
             posted += 1
+        elif err:
+            log(f"discord card failed: {err}")
     return posted
 
 

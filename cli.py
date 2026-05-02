@@ -176,6 +176,36 @@ def _detect_calling_bot() -> str | None:
     return None
 
 
+def _post_card_if_discord(action: dict, args: argparse.Namespace) -> None:
+    """Post a confirmation card to Discord if --discord-chat-id was provided.
+
+    Reuses discord_card so a save via tag (Stop hook) and a save via CLI
+    produce byte-identical cards. Without --discord-chat-id, this is a no-op.
+    """
+    chat_id = getattr(args, "discord_chat_id", None)
+    if not chat_id:
+        return
+    msg_id = getattr(args, "discord_message_id", None) or None
+    try:
+        import discord_card
+        ok, err = discord_card.post_action_card(
+            action, chat_id, reply_to=msg_id,
+            user_agent="multiagent-cli (1.0)",
+        )
+        if not ok and err:
+            print(f"[card post failed] {err}", file=sys.stderr)
+    except Exception as e:
+        print(f"[card post crashed] {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def _find_memory(mid: int) -> dict | None:
+    return next((x for x in store.load_memories() if x.get("id") == mid), None)
+
+
+def _find_journal(jid: int) -> dict | None:
+    return next((x for x in store.load_journal() if x.get("id") == jid), None)
+
+
 def cmd_memory(args: argparse.Namespace) -> int:
     sub = args.sub
     if sub == "list":
@@ -202,20 +232,29 @@ def cmd_memory(args: argparse.Namespace) -> int:
                               name=args.name or "", tags=tags,
                               about=about, bot=bot_list)
         print(f"Saved #{m['id']}: {m.get('name', '')}")
+        _post_card_if_discord({"kind": "memory_saved", "entry": m}, args)
         return 0
     if sub == "edit":
+        before = _find_memory(args.id)
         ok = store.edit_memory(args.id, args.text)
         if not ok:
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
         print(f"Updated #{args.id}")
+        _post_card_if_discord(
+            {"kind": "memory_edited", "id": args.id,
+             "before": before, "after": _find_memory(args.id)},
+            args,
+        )
         return 0
     if sub == "delete":
+        before = _find_memory(args.id)
         ok = store.remove_memory(args.id)
         if not ok:
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
         print(f"Deleted #{args.id}")
+        _post_card_if_discord({"kind": "memory_deleted", "before": before}, args)
         return 0
     if sub == "search":
         results = store.search_memories(args.term)
@@ -250,13 +289,16 @@ def cmd_journal(args: argparse.Namespace) -> int:
         e = store.add_journal(args.text, source=args.source or "cli",
                               actor=args.actor or "", tags=tags)
         print(f"Pinned #{e['id']}")
+        _post_card_if_discord({"kind": "journal_added", "entry": e}, args)
         return 0
     if sub == "delete":
+        before = _find_journal(args.id)
         ok = store.remove_journal(args.id)
         if not ok:
             print(f"Journal #{args.id} not found", file=sys.stderr)
             return 1
         print(f"Deleted #{args.id}")
+        _post_card_if_discord({"kind": "journal_deleted", "before": before}, args)
         return 0
     if sub == "search":
         results = store.search_journal(args.term)
@@ -328,6 +370,23 @@ def cmd_persona(args: argparse.Namespace) -> int:
     return 2
 
 
+def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
+    """Add --discord-chat-id / --discord-message-id to a subcommand parser.
+
+    When --discord-chat-id is set, after a successful op the CLI posts a
+    rendered card to that channel (replying to --discord-message-id when
+    provided). Without these flags the CLI is silent on Discord and just
+    prints `Saved #N` to stdout — backwards-compatible with terminal use.
+
+    Bots passing these from a Discord-originated request resolve them from
+    the inbound `<channel>` tag's `chat_id` and `message_id` attributes.
+    """
+    parser.add_argument("--discord-chat-id", default="",
+                        help="post a confirmation card to this Discord channel after the op")
+    parser.add_argument("--discord-message-id", default="",
+                        help="reply-to message ID for the card (requires --discord-chat-id)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent-tools",
                                 description="Shared memory + journal for multi-agent setups")
@@ -355,13 +414,16 @@ def build_parser() -> argparse.ArgumentParser:
     m_add.add_argument("--about", default="", help="comma-separated subject labels")
     m_add.add_argument("--bot", default="",
                        help="comma-separated bot names; default unset = shared across all agents")
+    _add_discord_flags(m_add)
 
     m_edit = msub.add_parser("edit")
     m_edit.add_argument("id", type=int)
     m_edit.add_argument("text")
+    _add_discord_flags(m_edit)
 
     m_del = msub.add_parser("delete")
     m_del.add_argument("id", type=int)
+    _add_discord_flags(m_del)
 
     m_search = msub.add_parser("search")
     m_search.add_argument("term")
@@ -384,9 +446,11 @@ def build_parser() -> argparse.ArgumentParser:
     j_add.add_argument("--source", default="cli")
     j_add.add_argument("--actor", default="")
     j_add.add_argument("--tags", default="")
+    _add_discord_flags(j_add)
 
     j_del = jsub.add_parser("delete")
     j_del.add_argument("id", type=int)
+    _add_discord_flags(j_del)
 
     j_search = jsub.add_parser("search")
     j_search.add_argument("term")
