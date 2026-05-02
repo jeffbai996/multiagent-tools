@@ -184,6 +184,15 @@ EXAMPLE_RE = re.compile(
     re.DOTALL,
 )
 
+# Fenced code blocks (``` ... ```) — remove the ENTIRE block including fences.
+# Bots use these for syntax demos, command examples, snippet replays — none
+# of them should trigger real saves. Non-greedy so multiple blocks don't
+# collapse into one. Tolerates language tags after the opening fence.
+FENCED_CODE_RE = re.compile(r"```[a-zA-Z0-9_+-]*\n.*?```", re.DOTALL)
+
+# Inline-code spans (`x`). Single-backtick pairs only.
+INLINE_CODE_RE = re.compile(r"`[^`\n]+?`")
+
 
 def user_asked_to_save(user_text: str) -> bool:
     """True iff the user's last message contains a save-intent verb."""
@@ -214,6 +223,14 @@ def process_text(text: str) -> tuple[dict, list[dict]]:
               "journaled": 0, "journal_deleted": 0}
     actions: list[dict] = []
 
+    # Strip code-fenced blocks + inline-code spans BEFORE example markers.
+    # Bots discussing the tag syntax (e.g. "use the [MEMORY: text] form")
+    # almost always do so inside backticks, and a literal example body like
+    # `...` would otherwise create a junk memory. Real saves should be in
+    # plain prose; the [MEMORY-EXAMPLE: ...] escape hatch covers the rare
+    # case where a bot needs to discuss syntax outside code formatting.
+    text = FENCED_CODE_RE.sub("", text)
+    text = INLINE_CODE_RE.sub("", text)
     text = EXAMPLE_RE.sub("", text)
 
     for m in MEM_RE.finditer(text):
@@ -332,19 +349,33 @@ def _parse_discord_origin(user_text: str) -> tuple[str, str] | None:
 
 
 def _read_bot_token() -> str | None:
-    """Read DISCORD_BOT_TOKEN. See module-level docstring for resolution order."""
+    """Read DISCORD_BOT_TOKEN.
+
+    Resolution order:
+      1. $MULTIAGENT_DISCORD_TOKEN — explicit token override
+      2. $DISCORD_STATE_DIR/.env — multi-agent setups where each bot has
+         its own state dir but shares CLAUDE_CONFIG_DIR. Takes priority
+         over CLAUDE_CONFIG_DIR for that reason.
+      3. $CLAUDE_PLUGIN_STATE_DIR/.env
+      4. $CLAUDE_CONFIG_DIR/channels/discord/.env
+      5. ~/.claude/channels/discord/.env
+    """
     explicit = os.environ.get("MULTIAGENT_DISCORD_TOKEN", "").strip()
     if explicit:
         return explicit
 
     env_path: str | None = None
-    plugin_dir = os.environ.get("CLAUDE_PLUGIN_STATE_DIR", "")
-    if plugin_dir:
-        env_path = os.path.join(plugin_dir, ".env")
-    elif os.environ.get("CLAUDE_CONFIG_DIR"):
-        env_path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "channels", "discord", ".env")
+    state_dir = os.environ.get("DISCORD_STATE_DIR", "")
+    if state_dir:
+        env_path = os.path.join(state_dir, ".env")
     else:
-        env_path = os.path.expanduser("~/.claude/channels/discord/.env")
+        plugin_dir = os.environ.get("CLAUDE_PLUGIN_STATE_DIR", "")
+        if plugin_dir:
+            env_path = os.path.join(plugin_dir, ".env")
+        elif os.environ.get("CLAUDE_CONFIG_DIR"):
+            env_path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "channels", "discord", ".env")
+        else:
+            env_path = os.path.expanduser("~/.claude/channels/discord/.env")
 
     if not env_path or not os.path.exists(env_path):
         return None
