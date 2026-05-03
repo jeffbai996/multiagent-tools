@@ -1,0 +1,39 @@
+{% extends "_base.html" %}
+{% block title %}new memory{% endblock %}
+{% block content %}
+
+<div class="detail">
+  <h2>new memory</h2>
+
+  <form method="post" action="{{ url_for('memory_new') }}">
+    <label>name</label>
+    <input type="text" name="name" placeholder="short title">
+
+    <label>type</label>
+    <select name="type">
+      {% for t in valid_types %}
+        <option value="{{ t }}" {% if t == 'feedback' %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+
+    <label>about (comma-separated subject labels)</label>
+    <input type="text" name="about" placeholder="subject(s) — e.g. user, project, domain">
+
+    <label>tags (comma-separated)</label>
+    <input type="text" name="tags" placeholder="discord, calendar, …">
+
+    <label>bot scope (comma-separated; leave blank for shared across all agents)</label>
+    <input type="text" name="bot" placeholder="agent-1">
+
+    <label>text</label>
+    <textarea name="text" required data-charcount="#new-charcount" autofocus></textarea>
+    <span id="new-charcount" class="charcount"></span>
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit">save</button>
+      <a class="btn btn-ghost" href="{{ url_for('index') }}">cancel</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

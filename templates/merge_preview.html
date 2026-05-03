@@ -1,0 +1,83 @@
+{% extends "_base.html" %}
+{% block title %}merge #{{ loser.id }} → #{{ winner.id }}{% endblock %}
+{% block content %}
+
+<div class="detail" style="max-width: 1100px;">
+  <h2>
+    <span class="muted" style="font-weight: 500;">merging</span>
+    <a class="entry" href="{{ url_for('memory_detail', memory_id=loser.id) }}">#<strong>{{ loser.id }}</strong> {{ loser.name or 'untitled' }}</a>
+    <span class="muted" style="font-weight: 500;">into</span>
+    <a class="entry" href="{{ url_for('memory_detail', memory_id=winner.id) }}">#<strong>{{ winner.id }}</strong> {{ winner.name or 'untitled' }}</a>
+  </h2>
+
+  <div class="merge-grid">
+    <section class="merge-pane">
+      <h3>loser — #<strong>{{ loser.id }}</strong> <span class="muted" style="font-weight: 400;">(will be moved to trash)</span></h3>
+      <div class="meta">
+        <span class="pill type-{{ loser.type or 'default' }}">{{ loser.type or '—' }}</span>
+        {% if loser.tags %}{% for t in loser.tags %}<span class="pill">{{ t }}</span>{% endfor %}{% endif %}
+      </div>
+      <div class="body-render markdown-body merge-body">{{ loser.text | render_md }}</div>
+    </section>
+
+    <section class="merge-pane">
+      <h3>winner — #<strong>{{ winner.id }}</strong> <span class="muted" style="font-weight: 400;">(will be updated)</span></h3>
+      <div class="meta">
+        <span class="pill type-{{ winner.type or 'default' }}">{{ winner.type or '—' }}</span>
+        {% if winner.tags %}{% for t in winner.tags %}<span class="pill">{{ t }}</span>{% endfor %}{% endif %}
+      </div>
+      <div class="body-render markdown-body merge-body">{{ winner.text | render_md }}</div>
+    </section>
+  </div>
+
+  <form method="post" action="{{ url_for('memory_merge', winner_id=winner.id) }}">
+    <input type="hidden" name="loser_id" value="{{ loser.id }}">
+
+    <label>merged text (edit before applying)</label>
+    <textarea name="text" data-charcount="#merge-charcount" autofocus>{{ suggested }}</textarea>
+    <span id="merge-charcount" class="charcount"></span>
+
+    {% if backlinks.memories or backlinks.journal %}
+    <section class="backlinks" style="margin-top: 1rem;">
+      <h3>references that will be rewritten</h3>
+      <p class="muted" style="font-size: 0.82rem; margin: 0 0 0.5rem;">
+        every <code>#{{ loser.id }}</code> and <code>[[memory:{{ loser.id }}]]</code> in these will become <code>#{{ winner.id }}</code>:
+      </p>
+      {% if backlinks.memories %}
+        <ul>
+        {% for b in backlinks.memories %}
+          <li>
+            <span class="pill type-{{ b.type or 'default' }}">{{ b.type }}</span>
+            <a class="entry" href="{{ url_for('memory_detail', memory_id=b.id) }}">#<strong>{{ b.id }}</strong> {{ b.name or '(untitled)' }}</a>
+          </li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+      {% if backlinks.journal %}
+        <ul>
+        {% for b in backlinks.journal %}
+          <li>
+            <span class="pill" style="background: var(--bg-3);">journal</span>
+            <a class="entry" href="{{ url_for('journal_detail', entry_id=b.id) }}">j#<strong>{{ b.id }}</strong> <span class="muted">{{ (b.ts or '')[:10] }}</span></a>
+          </li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+    {% else %}
+    <p class="muted" style="font-size: 0.85rem; margin-top: 1rem;">
+      no other records reference #{{ loser.id }}, so nothing else will be rewritten.
+    </p>
+    {% endif %}
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit"
+              onclick="return confirm('Merge #{{ loser.id }} into #{{ winner.id }}?\n\nThis will:\n• update #{{ winner.id }} with the text above\n• rewrite refs in {{ (backlinks.memories|length) + (backlinks.journal|length) }} other record(s)\n• move #{{ loser.id }} to trash\n\nAll steps are reversible from history/trash.');">
+        apply merge
+      </button>
+      <a class="btn btn-ghost" href="{{ url_for('memory_detail', memory_id=winner.id) }}">cancel</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

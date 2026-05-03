@@ -1,0 +1,192 @@
+{% extends "_base.html" %}
+{% block title %}digest review{% endblock %}
+{% block content %}
+
+<style>
+  .digest-grid { max-width: 1100px; }
+  .digest-stats { display: flex; gap: 1.5rem; flex-wrap: wrap; padding: 0.75rem 1rem;
+                  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+                  margin-bottom: 1rem; font-size: 0.9rem; }
+  .digest-stats strong { color: var(--text); }
+  .digest-stats .muted { font-size: 0.85rem; }
+
+  .digest-window-form { margin-bottom: 1rem; }
+  .digest-window-form input[type=number] { width: 5rem; padding: 0.3rem 0.5rem;
+                  background: var(--card); border: 1px solid var(--border);
+                  color: var(--text); border-radius: 4px; font: inherit; }
+
+  .digest-msg-list { max-height: 60vh; overflow-y: auto; padding: 0.5rem;
+                     background: var(--card); border: 1px solid var(--border);
+                     border-radius: 8px; margin-bottom: 1rem; }
+  .digest-msg { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
+                font-size: 0.9rem; line-height: 1.4; }
+  .digest-msg:last-child { border-bottom: none; }
+  .digest-msg-meta { display: flex; gap: 0.6rem; align-items: baseline;
+                     font-size: 0.78rem; color: var(--muted); margin-bottom: 0.15rem; }
+  .digest-msg-author { color: var(--text); font-weight: 600; }
+  .digest-msg-author.bot { color: #8a9bb3; font-weight: 500; }
+  .digest-msg-channel { background: var(--accent); color: #0d1117;
+                        padding: 0.05rem 0.4rem; border-radius: 3px;
+                        font-size: 0.7rem; text-transform: lowercase; }
+  .digest-msg-content { white-space: pre-wrap; word-break: break-word;
+                        font-family: inherit; }
+  .digest-msg-content:empty::after { content: "(empty / embed only)";
+                        color: var(--muted); font-style: italic; font-size: 0.8rem; }
+
+  .digest-warn { padding: 1rem; background: #4a2a1a; border: 1px solid #8a4a2a;
+                 border-radius: 8px; color: #ffb38a; margin-bottom: 1rem; }
+  .digest-empty { padding: 2rem; text-align: center; color: var(--muted);
+                  background: var(--card); border: 1px solid var(--border);
+                  border-radius: 8px; margin-bottom: 1rem; }
+</style>
+
+<div class="detail digest-grid">
+  <h2>digest review · last {{ hours }}h</h2>
+
+  {% if not token_present %}
+  <div class="digest-warn">
+    <strong>No Discord token configured.</strong> Set
+    <code>MULTIAGENT_DISCORD_TOKEN</code> in <code>~/.config/multiagent-tools/env</code>
+    and restart the multiagent-tools service. The bot user behind the token must be a
+    member of every channel listed and have the Message Content intent enabled.
+  </div>
+  {% endif %}
+
+  <form class="digest-window-form" method="get" action="{{ url_for('digest_review') }}">
+    <label>window (hours):
+      <input type="number" name="hours" value="{{ hours }}" min="1" max="168">
+    </label>
+    <button class="btn" type="submit">refresh</button>
+    <span class="muted" style="margin-left: 0.6rem; font-size: 0.85rem;">
+      channels: {% for name in channels %}<code>{{ name }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+    </span>
+  </form>
+
+  {% if msgs %}
+  <div class="digest-stats">
+    <span><strong>{{ stats.total }}</strong> messages</span>
+    {% for ch, n in stats.by_channel.items() %}
+      <span><strong>{{ n }}</strong> in {{ ch }}</span>
+    {% endfor %}
+    <span><strong>{{ stats.human_count }}</strong> human · <strong>{{ stats.bot_count }}</strong> bot</span>
+    <span class="muted">top:
+      {% for author, n in stats.by_author.items() %}{% if loop.index <= 4 %}{{ author }} ({{ n }}){% if not loop.last and loop.index < 4 %}, {% endif %}{% endif %}{% endfor %}
+    </span>
+  </div>
+
+  <div class="digest-msg-list">
+    {% for m in msgs %}
+    <div class="digest-msg">
+      <div class="digest-msg-meta">
+        <span class="digest-msg-channel {{ m.channel }}">{{ m.channel }}</span>
+        <span class="digest-msg-author {% if m.is_bot %}bot{% endif %}">{{ m.author }}</span>
+        <span>{{ m.ts[:16].replace('T', ' ') }}</span>
+      </div>
+      <div class="digest-msg-content">{{ m.content }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="digest-empty">
+    {% if token_present %}
+      No messages in the last {{ hours }}h, or the token can't read these channels.
+    {% else %}
+      Configure the token to load messages.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <h3 style="margin-top: 2rem;">write digest</h3>
+  <form method="post" action="{{ url_for('digest_review') }}">
+    <input type="hidden" name="channels" value="{{ channels.keys()|join(',') }}">
+
+    <label>actor</label>
+    <input type="text" name="actor" value="" placeholder="user or agent name">
+
+    <label>tags (comma-separated, "digest" auto-added)</label>
+    <input type="text" name="tags" placeholder="optional — e.g. urgent, design">
+
+    <label>
+      digest text
+      <button type="button" id="dig-summarize" class="btn"
+              style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.85rem;">
+        ✨ auto-summarize ({{ stats.total }} msgs)
+      </button>
+      <span id="dig-summarize-status" class="muted" style="margin-left: 0.5rem; font-size: 0.85rem;"></span>
+    </label>
+    <textarea id="dig-text" name="text" required data-charcount="#dig-charcount" autofocus
+      placeholder="What mattered in the last {{ hours }}h. One paragraph + a few bullets if needed."></textarea>
+    <span id="dig-charcount" class="charcount"></span>
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit">save digest</button>
+      <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">cancel</a>
+    </div>
+  </form>
+
+<script>
+// Auto-summarize: POST to /digest/summarize, drop the result into the textarea.
+// Replaces existing text wholesale (with a confirm if the box already has content).
+(function () {
+  const btn = document.getElementById("dig-summarize");
+  const status = document.getElementById("dig-summarize-status");
+  const ta = document.getElementById("dig-text");
+  if (!btn || !ta) return;
+  // Cooldown countdown — keeps the button disabled with a live ticker so
+  // the user can see when it's safe to click again. Server enforces the
+  // real limit (this is just UX); it returns 429 + retry_after_sec.
+  let cooldownTimer = null;
+  function startCooldown(seconds, msg) {
+    btn.disabled = true;
+    let remaining = seconds;
+    const tick = () => {
+      if (remaining <= 0) {
+        clearInterval(cooldownTimer);
+        cooldownTimer = null;
+        btn.disabled = false;
+        status.textContent = "";
+        return;
+      }
+      status.textContent = `${msg} (${remaining}s)`;
+      remaining -= 1;
+    };
+    tick();
+    cooldownTimer = setInterval(tick, 1000);
+  }
+
+  btn.addEventListener("click", async function () {
+    if (ta.value.trim() && !confirm("Replace existing draft with auto-summary?")) return;
+    btn.disabled = true;
+    status.textContent = "summarizing…";
+    try {
+      const res = await fetch("{{ url_for('digest_summarize') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "hours={{ hours }}",
+      });
+      const payload = await res.json();
+      if (res.status === 429) {
+        const wait = payload.retry_after_sec || 30;
+        startCooldown(wait, "⏳ cooldown");
+        return;
+      }
+      if (!res.ok) {
+        status.textContent = "❌ " + (payload.error || "summarize failed");
+        btn.disabled = false;
+        return;
+      }
+      ta.value = payload.text;
+      ta.dispatchEvent(new Event("input"));  // refresh charcount
+      // Lock the button for the cooldown window after a successful call.
+      // 30s matches SUMMARIZE_COOLDOWN_SEC server-side.
+      startCooldown(30, `✅ summarized ${payload.msg_count} msgs · cooldown`);
+    } catch (e) {
+      status.textContent = "❌ " + (e.message || "request failed");
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+</div>
+
+{% endblock %}

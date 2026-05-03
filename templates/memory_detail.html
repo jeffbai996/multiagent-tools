@@ -1,0 +1,102 @@
+{% extends "_base.html" %}
+{% block title %}#{{ m.id }} {{ m.name or '' }}{% endblock %}
+{% block content %}
+
+<div class="detail">
+  <h2>
+    <span class="muted" style="font-weight: 500;">#</span><strong>{{ m.id }}</strong>
+    <span style="margin-left: 0.4rem;">{{ m.name or 'untitled' }}</span>
+    {% if m.pinned %}<span class="pin-badge" title="pinned"><svg class="pin-icon"><use href="#i-pin"/></svg></span>{% endif %}
+  </h2>
+  <div class="meta">
+    <span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span>
+    {% if m.about %}
+      <span class="sep">·</span>
+      {% for a in m.about %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
+    {% endif %}
+    {% if m.tags %}
+      <span class="sep">·</span>
+      {% for t in m.tags %}<a class="pill" href="{{ url_for('index', q=t) }}">{{ t }}</a>{% endfor %}
+    {% endif %}
+    <span class="sep">·</span>
+    <span>saved {{ (m.ts or '')[:10] }}</span>
+    {% if m.bot %}<span class="sep">·</span><span>bot: {{ m.bot|join(', ') }}</span>{% endif %}
+  </div>
+
+  <div class="body-render markdown-body">{{ m.text | render_md }}</div>
+
+  {% if backlinks.memories or backlinks.journal %}
+  <section class="backlinks">
+    <h3>linked from</h3>
+    {% if backlinks.memories %}
+      <ul>
+      {% for b in backlinks.memories %}
+        <li>
+          <span class="pill type-{{ b.type or 'default' }}">{{ b.type }}</span>
+          <a class="entry" href="{{ url_for('memory_detail', memory_id=b.id) }}">#<strong>{{ b.id }}</strong> {{ b.name or '(untitled)' }}</a>
+        </li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+    {% if backlinks.journal %}
+      <ul>
+      {% for b in backlinks.journal %}
+        <li>
+          <span class="pill" style="background: var(--bg-3);">journal</span>
+          <a class="entry" href="{{ url_for('journal_detail', entry_id=b.id) }}">j#<strong>{{ b.id }}</strong> <span class="muted">{{ (b.ts or '')[:10] }}{% if b.actor %} · {{ b.actor }}{% endif %}</span></a>
+        </li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('memory_detail', memory_id=m.id) }}">
+    <input type="hidden" name="action" value="edit">
+
+    <label>name</label>
+    <input type="text" name="name" value="{{ m.name or '' }}">
+
+    <label>type</label>
+    <select name="type">
+      {% for t in valid_types %}
+        <option value="{{ t }}" {% if m.type == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+
+    <label>about (comma-separated subject labels)</label>
+    <input type="text" name="about" value="{{ (m.about or [])|join(', ') }}" placeholder="subject(s) — e.g. user, project, domain">
+
+    <label>tags (comma-separated)</label>
+    <input type="text" name="tags" value="{{ (m.tags or [])|join(', ') }}">
+
+    <label>bot scope (comma-separated; leave blank for shared across all agents)</label>
+    <input type="text" name="bot" value="{{ (m.bot or [])|join(', ') }}" placeholder="agent-1, agent-2">
+
+    <label class="row" style="gap: 0.4rem; align-items: center; text-transform: none; letter-spacing: 0; font-size: 0.9rem; color: var(--fg);">
+      <input type="checkbox" name="pinned" value="1" {% if m.pinned %}checked{% endif %} style="width: auto;">
+      <svg class="pin-icon" style="color: var(--muted);"><use href="#i-pin"/></svg>
+      pin to top of memory list
+    </label>
+
+    <label>text</label>
+    <textarea name="text" data-charcount="#mem-charcount">{{ m.text or '' }}</textarea>
+    <span id="mem-charcount" class="charcount"></span>
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit">save</button>
+      <a class="btn btn-ghost" href="{{ url_for('index') }}">back to list</a>
+      <a class="btn btn-ghost" href="{{ url_for('memory_history', memory_id=m.id) }}">history</a>
+      <a class="btn btn-ghost" href="{{ url_for('memory_merge', winner_id=m.id) }}">merge from…</a>
+      <span class="spacer"></span>
+    </div>
+  </form>
+
+  <form method="post" action="{{ url_for('memory_delete_form', memory_id=m.id) }}"
+        onsubmit="return confirm('Delete memory #{{ m.id }}?');"
+        style="margin-top: 1rem;">
+    <button class="btn-danger" type="submit">delete memory</button>
+  </form>
+</div>
+
+{% endblock %}

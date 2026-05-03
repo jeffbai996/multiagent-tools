@@ -1,0 +1,120 @@
+{% extends "_base.html" %}
+{% block title %}memories ({{ entries|length }}/{{ total }}){% endblock %}
+{% block content %}
+
+<form class="filters" method="get">
+  <input type="search" name="q" placeholder="search memories…" value="{{ q }}" autocomplete="off">
+  <select name="type">
+    <option value="">all types</option>
+    {% for t in types %}
+      <option value="{{ t }}" {% if t == type_filter %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <select name="about">
+    <option value="">all subjects</option>
+    {% for a in abouts %}
+      <option value="{{ a }}" {% if a in about_filter %}selected{% endif %}>{{ a }}</option>
+    {% endfor %}
+  </select>
+  {% if bots %}
+  <select name="bot">
+    <option value="">any bot</option>
+    {% for b in bots %}
+      <option value="{{ b }}" {% if b == bot_filter %}selected{% endif %}>{{ b }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <label class="row" style="gap: 0.3rem;">
+    <input type="checkbox" name="all" value="1" {% if show_all %}checked{% endif %}>
+    show bot-scoped
+  </label>
+  <button class="btn-primary" type="submit">filter</button>
+  {% if q or type_filter or about_filter or bot_filter or show_all %}
+    <a class="btn btn-ghost" href="{{ url_for('index') }}">clear</a>
+  {% endif %}
+</form>
+
+{% if q or type_filter or about_filter or bot_filter %}
+<div class="chips">
+  <span class="muted" style="font-size: 0.82rem;">active:</span>
+  {% if q %}
+    <span class="chip"><span class="label">q</span>{{ q }}
+      <a href="{{ url_for('index', type=type_filter, about=about_filter, bot=bot_filter, all='1' if show_all else None) }}" title="clear search">×</a></span>
+  {% endif %}
+  {% if type_filter %}
+    <span class="chip"><span class="label">type</span>{{ type_filter }}
+      <a href="{{ url_for('index', q=q, about=about_filter, bot=bot_filter, all='1' if show_all else None) }}" title="clear type">×</a></span>
+  {% endif %}
+  {% for a in about_filter %}
+    <span class="chip"><span class="label">about</span>{{ a }}
+      <a href="{{ url_for('index', q=q, type=type_filter, bot=bot_filter, all='1' if show_all else None, about=about_filter|reject('equalto', a)|list) }}" title="clear about">×</a></span>
+  {% endfor %}
+  {% if bot_filter %}
+    <span class="chip"><span class="label">bot</span>{{ bot_filter }}
+      <a href="{{ url_for('index', q=q, type=type_filter, about=about_filter, all='1' if show_all else None) }}" title="clear bot">×</a></span>
+  {% endif %}
+</div>
+{% endif %}
+
+<p class="muted" style="font-size: 0.85rem; margin-bottom: 0.6rem;">
+  <strong style="color: var(--fg);">{{ entries|length }}</strong> of
+  <strong style="color: var(--fg);">{{ total }}</strong> memories
+</p>
+
+{% if entries %}
+<table class="with-pin">
+  <thead>
+    <tr>
+      <th class="pin-cell"></th>
+      <th style="width: 4rem;">id</th>
+      <th style="width: 8rem;">type</th>
+      <th>name</th>
+      <th class="small">about</th>
+      <th class="small">tags</th>
+      <th class="small" style="width: 6rem; text-align: right;">date</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for m in entries %}
+    <tr class="{% if m.pinned %}is-pinned{% endif %}">
+      <td class="pin-cell">
+        <form method="post" action="{{ url_for('memory_pin', memory_id=m.id) }}" style="margin: 0;">
+          <button class="pin-btn {% if m.pinned %}pinned{% endif %}" type="submit"
+                  title="{% if m.pinned %}unpin{% else %}pin to top{% endif %}" aria-label="pin">
+            <svg class="pin-icon"><use href="#i-pin"/></svg>
+          </button>
+        </form>
+      </td>
+      <td class="id-cell"><a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a></td>
+      <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span></td>
+      <td>
+        <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
+          {{ (m.name or m.text[:80]) | highlight(q) }}
+        </a>
+        {% if m.bot %}
+          <span class="pill" style="background: rgba(207, 34, 46, 0.15); color: #ff7b72; border-color: rgba(207, 34, 46, 0.3);">bot:{{ m.bot|join(',') }}</span>
+        {% endif %}
+      </td>
+      <td class="small">
+        {% for a in m.about or [] %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
+      </td>
+      <td class="small">
+        {% for t in m.tags or [] %}<a class="pill" href="{{ url_for('index', q=t) }}">{{ t }}</a>{% endfor %}
+      </td>
+      <td class="small date">{{ (m.ts or '')[:10] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <h3>no memories match</h3>
+  <p>try clearing filters or searching differently.</p>
+  <p style="margin-top: 1rem;">
+    <a class="btn btn-ghost" href="{{ url_for('index') }}">clear filters</a>
+    <a class="btn btn-primary" href="{{ url_for('memory_new') }}">+ new memory</a>
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}

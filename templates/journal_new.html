@@ -1,0 +1,29 @@
+{% extends "_base.html" %}
+{% block title %}new journal entry{% endblock %}
+{% block content %}
+
+<div class="detail">
+  <h2>new journal entry</h2>
+
+  <form method="post" action="{{ url_for('journal_new') }}">
+    <label>actor</label>
+    <input type="text" name="actor" placeholder="agent or human name">
+
+    <label>source</label>
+    <input type="text" name="source" value="web" placeholder="web, cli, discord:general, …">
+
+    <label>tags (comma-separated)</label>
+    <input type="text" name="tags" placeholder="optional — comma-separated tags">
+
+    <label>text</label>
+    <textarea name="text" required data-charcount="#jnew-charcount" autofocus></textarea>
+    <span id="jnew-charcount" class="charcount"></span>
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit">save entry</button>
+      <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">cancel</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

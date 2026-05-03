@@ -1,0 +1,53 @@
+{% extends "_base.html" %}
+{% block title %}history #{{ target.id }}{% endblock %}
+{% block content %}
+
+<div class="detail">
+  <h2>
+    <span class="muted" style="font-weight: 500;">history of</span>
+    {% if target_kind == 'memory' %}
+      <a class="entry" href="{{ url_for('memory_detail', memory_id=target.id) }}">#<strong>{{ target.id }}</strong> {{ target.name or 'untitled' }}</a>
+    {% else %}
+      <a class="entry" href="{{ url_for('journal_detail', entry_id=target.id) }}">j#<strong>{{ target.id }}</strong> journal</a>
+    {% endif %}
+  </h2>
+
+  {% if not entries %}
+  <div class="empty">
+    <h3>no recorded edits</h3>
+    <p>history is captured for changes made through the web UI. CLI and bot edits are not logged.</p>
+  </div>
+  {% else %}
+  <p class="muted" style="font-size: 0.85rem;">
+    <strong style="color: var(--fg);">{{ entries|length }}</strong> revision{{ '' if entries|length == 1 else 's' }} (newest first)
+  </p>
+
+  <div class="history-list">
+  {% for h in entries %}
+    <div class="history-entry">
+      <div class="history-meta">
+        <span>{{ (h.ts or '')[:19] | replace('T', ' ') }}</span>
+        <span class="sep">·</span>
+        <span>{{ h.actor or 'web' }}</span>
+        <span class="sep">·</span>
+        <span>changed: {{ (h.after or {}).keys() | join(', ') }}</span>
+      </div>
+      <details>
+        <summary class="muted" style="cursor: pointer; font-size: 0.85rem;">show prior state</summary>
+        <pre class="history-snapshot">{{ (h.before or {}) | tojson(indent=2) }}</pre>
+      </details>
+      <form method="post" action="{{ url_for('history_revert') }}"
+            onsubmit="return confirm('Revert to this prior state?');"
+            style="margin-top: 0.6rem;">
+        <input type="hidden" name="kind" value="{{ target_kind }}">
+        <input type="hidden" name="id" value="{{ target.id }}">
+        <input type="hidden" name="ts" value="{{ h.ts }}">
+        <button class="btn btn-ghost" type="submit">revert to this state</button>
+      </form>
+    </div>
+  {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

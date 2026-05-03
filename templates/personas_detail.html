@@ -1,0 +1,57 @@
+{% extends "_base.html" %}
+{% block title %}{{ bot }}/{{ slot }} — multiagent-tools{% endblock %}
+{% block content %}
+
+<div class="detail">
+  <h2>
+    <a href="{{ url_for('personas_index') }}" class="muted" style="text-decoration: none; font-weight: 500;">personas</a>
+    <span class="muted">/</span>
+    <strong>{{ bot }}</strong>
+    <span class="muted">/</span>
+    <span>{{ slot }}</span>
+  </h2>
+
+  <div class="meta">
+    <span class="pill {% if data.mode == 'git' %}type-project{% endif %}">{{ data.mode }}</span>
+    <span class="sep">·</span>
+    <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.82rem;">{{ data.path }}</span>
+    {% if data.mtime %}
+      <span class="sep">·</span>
+      <span>modified {{ data.mtime | int }}</span>
+    {% else %}
+      <span class="sep">·</span>
+      <span style="color: #ff8a8a;">file does not exist yet — saving will create it</span>
+    {% endif %}
+  </div>
+
+  {% if saved %}
+    <div style="background: #052b1f; border: 1px solid #1a4d3a; color: #56d4a3; padding: 0.6rem 0.85rem; border-radius: var(--radius); margin-bottom: 1rem; font-size: 0.9rem;">
+      saved
+      {% if data.mode == 'git' %}
+        {% if saved.committed %}
+          · committed <code>{{ saved.sha }}</code>
+        {% else %}
+          · file written but git commit failed
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+  {% if error %}
+    <div style="background: #3a0a0a; border: 1px solid #6b1212; color: #ff8a8a; padding: 0.6rem 0.85rem; border-radius: var(--radius); margin-bottom: 1rem; font-size: 0.9rem;">
+      error: {{ error }}
+    </div>
+  {% endif %}
+
+  <form method="post">
+    <label for="text">content</label>
+    <textarea id="text" name="text" rows="36" data-charcount="#cc">{{ data.text }}</textarea>
+    <span class="charcount" id="cc"></span>
+
+    <div class="toolbar">
+      <a href="{{ url_for('personas_index') }}" class="btn btn-ghost">← back</a>
+      <div class="spacer"></div>
+      <button type="submit" class="btn btn-primary">save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

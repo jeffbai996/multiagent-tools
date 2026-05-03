@@ -1,0 +1,78 @@
+{% extends "_base.html" %}
+{% block title %}journal #{{ e.id }}{% endblock %}
+{% block content %}
+
+<div class="detail">
+  <h2>
+    <span class="muted" style="font-weight: 500;">#</span><strong>{{ e.id }}</strong>
+    <span style="margin-left: 0.4rem;">journal entry</span>
+  </h2>
+  <div class="meta">
+    <span>{{ (e.ts or '')[:19] | replace('T', ' ') }}</span>
+    {% if e.actor %}<span class="sep">·</span><span>{{ e.actor }}</span>{% endif %}
+    {% if e.source %}<span class="sep">·</span><span>{{ e.source }}</span>{% endif %}
+    {% if e.tags %}
+      <span class="sep">·</span>
+      {% for t in e.tags %}<a class="pill" href="{{ url_for('journal_index', q=t) }}">{{ t }}</a>{% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="body-render markdown-body">{{ e.text | render_md }}</div>
+
+  {% if backlinks.memories or backlinks.journal %}
+  <section class="backlinks">
+    <h3>linked from</h3>
+    {% if backlinks.memories %}
+      <ul>
+      {% for b in backlinks.memories %}
+        <li>
+          <span class="pill type-{{ b.type or 'default' }}">{{ b.type }}</span>
+          <a class="entry" href="{{ url_for('memory_detail', memory_id=b.id) }}">#<strong>{{ b.id }}</strong> {{ b.name or '(untitled)' }}</a>
+        </li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+    {% if backlinks.journal %}
+      <ul>
+      {% for b in backlinks.journal %}
+        <li>
+          <span class="pill" style="background: var(--bg-3);">journal</span>
+          <a class="entry" href="{{ url_for('journal_detail', entry_id=b.id) }}">j#<strong>{{ b.id }}</strong> <span class="muted">{{ (b.ts or '')[:10] }}</span></a>
+        </li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('journal_detail', entry_id=e.id) }}">
+    <input type="hidden" name="action" value="edit">
+
+    <label>actor</label>
+    <input type="text" name="actor" value="{{ e.actor or '' }}" placeholder="bot or human name">
+
+    <label>source</label>
+    <input type="text" name="source" value="{{ e.source or '' }}" placeholder="discord:general, cli, api…">
+
+    <label>tags (comma-separated)</label>
+    <input type="text" name="tags" value="{{ (e.tags or [])|join(', ') }}">
+
+    <label>text</label>
+    <textarea name="text" data-charcount="#j-charcount">{{ e.text or '' }}</textarea>
+    <span id="j-charcount" class="charcount"></span>
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit">save</button>
+      <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">back to journal</a>
+      <a class="btn btn-ghost" href="{{ url_for('journal_history', entry_id=e.id) }}">history</a>
+    </div>
+  </form>
+
+  <form method="post" action="{{ url_for('journal_delete_form', entry_id=e.id) }}"
+        onsubmit="return confirm('Delete journal entry #{{ e.id }}?');"
+        style="margin-top: 1rem;">
+    <button class="btn-danger" type="submit">delete entry</button>
+  </form>
+</div>
+
+{% endblock %}

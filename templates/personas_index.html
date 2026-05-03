@@ -1,0 +1,46 @@
+{% extends "_base.html" %}
+{% block title %}personas — multiagent-tools{% endblock %}
+{% block content %}
+
+<h2>personas</h2>
+<p class="muted" style="margin-top:-0.2rem;">Per-bot identity files. Edits to <code>git</code>-tracked slots auto-commit to the configured git_repo in agents.yaml.</p>
+
+<div class="bot-grid">
+{% for bot in bots %}
+  <div class="bot-card">
+    <div class="bot-card-header">
+      <h3>{{ bot.name }}</h3>
+      <span class="muted" style="font-size: 0.82rem;">{{ bot.slots|length }} slot{{ '' if bot.slots|length == 1 else 's' }}</span>
+    </div>
+    <ul class="slot-list">
+      {% for s in bot.slots %}
+      <li>
+        <a class="entry" href="{{ url_for('personas_detail', bot=bot.name, slot=s.slot) }}">
+          <strong>{{ s.slot }}</strong>
+        </a>
+        <span class="pill {% if s.mode == 'git' %}type-project{% endif %}" style="font-size: 0.72rem;">{{ s.mode }}</span>
+        {% if s.missing %}
+          <span class="pill" style="background: #3a0a0a; color: #ff8a8a; border-color: #6b1212; font-size: 0.72rem;">missing</span>
+        {% endif %}
+        <div class="muted" style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.74rem; margin: 0.2rem 0 0.4rem;">{{ s.path }}</div>
+        {% if s.preview %}
+          <div class="slot-preview">{{ s.preview }}{% if s.preview|length >= 200 %}…{% endif %}</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endfor %}
+</div>
+
+<style>
+.bot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1rem; margin-top: 1rem; }
+.bot-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; }
+.bot-card-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; margin-bottom: 0.6rem; }
+.bot-card-header h3 { margin: 0; font-size: 1.05rem; }
+.slot-list { list-style: none; margin: 0; padding: 0; }
+.slot-list > li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.slot-list > li:last-child { border-bottom: none; }
+.slot-preview { background: var(--bg-3); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.82rem; color: var(--muted); white-space: pre-wrap; max-height: 4.5em; overflow: hidden; line-height: 1.45; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+</style>
+{% endblock %}

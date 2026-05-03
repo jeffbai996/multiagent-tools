@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}multiagent-tools{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d1117;
+  --bg-2: #161b22;
+  --bg-3: #1c2128;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --border: #21262d;
+  --border-2: #30363d;
+  --accent: #58a6ff;
+  --pill: #1c2128;
+  --radius: 8px;
+
+  /* type colors */
+  --t-feedback-bg: #3a2a05; --t-feedback-fg: #f0c674; --t-feedback-bd: #6b4d12;
+  --t-project-bg:  #0a2d4a; --t-project-fg:  #79c0ff; --t-project-bd:  #1e4a78;
+  --t-user-bg:     #2d1f47; --t-user-fg:     #c8a3ff; --t-user-bd:     #4a3580;
+  --t-reference-bg: #052b2b; --t-reference-fg: #56d4d4; --t-reference-bd: #114848;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg); color: var(--fg);
+  margin: 0;
+  font-size: 15px; line-height: 1.55;
+  font-feature-settings: "ss01", "cv01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1.5rem 4rem; }
+header.site { display: flex; justify-content: space-between; align-items: center;
+              border-bottom: 1px solid var(--border); padding-bottom: 0.6rem;
+              margin-bottom: 1.25rem; gap: 1rem; flex-wrap: wrap;
+              position: sticky; top: 0; background: var(--bg); z-index: 10; padding-top: 0.45rem; }
+header.site a { color: var(--muted); text-decoration: none; font-weight: 500;
+                padding: 0.3rem 0.1rem; transition: color 120ms ease;
+                font-size: 0.92rem; }
+header.site a:hover { color: var(--fg); }
+header.site a.brand { color: var(--fg); font-weight: 800; font-size: 1.32rem;
+                      letter-spacing: -0.02em; margin-right: 0.75rem; }
+header.site a.brand:hover { color: var(--accent); }
+header.site .row { gap: 1.1rem; align-items: baseline; }
+
+/* dropdown */
+.dropdown { position: relative; display: inline-block; }
+.dropdown-toggle { background: none; border: none; color: var(--muted);
+                   font-weight: 500; font-size: 0.92rem; cursor: pointer;
+                   padding: 0.3rem 0.1rem; font-family: inherit;
+                   transition: color 120ms ease; }
+.dropdown-toggle:hover, .dropdown.open .dropdown-toggle { color: var(--fg); background: none; }
+.dropdown-menu { display: none; position: absolute; top: calc(100% + 0.4rem); left: 0;
+                 background: var(--bg-2); border: 1px solid var(--border-2);
+                 border-radius: var(--radius); padding: 0.35rem;
+                 min-width: 12rem; z-index: 20;
+                 box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.dropdown.open .dropdown-menu { display: block; }
+.dropdown-menu a { display: block; padding: 0.45rem 0.7rem; color: var(--fg);
+                   font-size: 0.92rem; border-radius: 6px;
+                   font-weight: 500; }
+.dropdown-menu a:hover { background: var(--bg-3); color: var(--accent); }
+.dropdown-menu .desc { display: block; color: var(--muted); font-size: 0.78rem;
+                       margin-top: 0.1rem; font-weight: 400; }
+.kbd { display: inline-block; background: var(--bg-3); border: 1px solid var(--border-2);
+       border-bottom-width: 2px; border-radius: 4px; padding: 0 0.35rem;
+       font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.78rem;
+       color: var(--muted); }
+h1, h2, h3 { letter-spacing: -0.015em; font-weight: 600; }
+h2 { font-size: 1.4rem; margin: 0.4rem 0 0.4rem; }
+.muted { color: var(--muted); }
+
+/* pills (default) */
+.pill { display: inline-block; background: var(--pill); padding: 0.12rem 0.55rem;
+        border-radius: 999px; font-size: 0.78rem; margin-right: 0.3rem;
+        color: var(--muted); border: 1px solid var(--border);
+        font-weight: 500; line-height: 1.5; vertical-align: middle;
+        text-decoration: none; transition: filter 120ms ease, border-color 120ms ease; }
+a.pill:hover { filter: brightness(1.3); border-color: var(--border-2); }
+
+/* type pills — semantic colors */
+.pill.type-feedback { background: var(--t-feedback-bg); color: var(--t-feedback-fg); border-color: var(--t-feedback-bd); }
+.pill.type-project  { background: var(--t-project-bg);  color: var(--t-project-fg);  border-color: var(--t-project-bd); }
+.pill.type-user     { background: var(--t-user-bg);     color: var(--t-user-fg);     border-color: var(--t-user-bd); }
+.pill.type-reference{ background: var(--t-reference-bg);color: var(--t-reference-fg);border-color: var(--t-reference-bd); }
+
+/* active filter chips */
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+         margin-bottom: 0.9rem; }
+.chip { display: inline-flex; gap: 0.4rem; align-items: center;
+        background: var(--bg-3); border: 1px solid var(--border-2);
+        padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.82rem;
+        color: var(--fg); }
+.chip a { color: var(--muted); text-decoration: none; line-height: 1; }
+.chip a:hover { color: #ff6b6b; }
+.chip .label { color: var(--muted); margin-right: 0.2rem; font-weight: 500; }
+
+/* forms */
+form.filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+               margin-bottom: 1.25rem; }
+form.filters input, form.filters select, button, .btn {
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--border-2);
+  padding: 0.4rem 0.7rem; border-radius: var(--radius); font-size: 0.9rem;
+  font-family: inherit; transition: border-color 120ms ease, background 120ms ease;
+}
+form.filters input:focus, form.filters select:focus,
+.detail textarea:focus, .detail input[type=text]:focus {
+  outline: none; border-color: var(--accent);
+}
+form.filters input[type=search] { min-width: 220px; }
+button, .btn { cursor: pointer; font-weight: 500; }
+button:hover, .btn:hover { background: #1f2937; }
+.btn-primary { background: var(--accent); color: #0d1117; border: none;
+               font-weight: 600; }
+.btn-primary:hover { background: #79b8ff; }
+.btn-danger  { background: #cf222e; color: #fff; border: none; font-weight: 600; }
+.btn-danger:hover { background: #da3633; }
+.btn-ghost   { background: transparent; border: 1px solid var(--border-2); }
+.btn-ghost:hover { background: var(--bg-2); border-color: var(--accent); color: var(--accent); }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; }
+thead th { position: sticky; top: 60px; background: var(--bg); z-index: 5;
+           border-bottom: 1px solid var(--border-2); }
+th, td { text-align: left; padding: 0.6rem 0.7rem;
+         border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 0.74rem;
+     text-transform: uppercase; letter-spacing: 0.05em; }
+tr:hover td { background: var(--bg-2); }
+td.date { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums;
+          font-size: 0.85rem; color: var(--muted); }
+td.truncate { max-width: 0; overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; }
+td.truncate a.entry { display: block; overflow: hidden; text-overflow: ellipsis;
+                      white-space: nowrap; }
+a.entry { color: var(--fg); text-decoration: none; font-weight: 500; }
+a.entry:hover { color: var(--accent); }
+/* ID number column: larger, tabular for alignment */
+.id-cell { font-variant-numeric: tabular-nums; }
+.id-cell a.entry { font-size: 1rem; }
+.id-cell strong { font-size: 1.05rem; font-weight: 700; }
+
+/* search highlight */
+mark { background: rgba(241, 196, 15, 0.25); color: inherit;
+       padding: 0 0.15em; border-radius: 3px; }
+
+/* empty state */
+.empty { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+.empty h3 { color: var(--fg); margin: 0 0 0.5rem; font-weight: 600; }
+.empty p { margin: 0.4rem 0; }
+
+/* detail pages */
+.detail { max-width: 820px; }
+.detail .body-render { word-wrap: break-word;
+                       background: var(--bg-2); padding: 1rem 1.1rem;
+                       border-radius: var(--radius); border: 1px solid var(--border);
+                       margin-bottom: 1.5rem; line-height: 1.6;
+                       font-size: 0.95rem; }
+/* markdown rendering inside body-render */
+.markdown-body p { margin: 0 0 0.7rem; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  margin: 1.2rem 0 0.5rem; font-weight: 600; letter-spacing: -0.01em;
+}
+.markdown-body h1 { font-size: 1.3rem; }
+.markdown-body h2 { font-size: 1.15rem; }
+.markdown-body h3 { font-size: 1rem; }
+.markdown-body ul, .markdown-body ol { margin: 0.4rem 0 0.7rem 1.2rem; padding: 0; }
+.markdown-body li { margin: 0.2rem 0; }
+.markdown-body code { background: var(--bg-3); padding: 0.05rem 0.35rem;
+                      border-radius: 4px; font-size: 0.86em;
+                      font-family: "JetBrains Mono", ui-monospace, monospace; }
+.markdown-body pre { background: var(--bg-3); border: 1px solid var(--border);
+                     padding: 0.7rem 0.9rem; border-radius: var(--radius);
+                     overflow-x: auto; line-height: 1.5; }
+.markdown-body pre code { background: none; padding: 0; font-size: 0.86em; }
+.markdown-body blockquote { border-left: 3px solid var(--border-2);
+                            padding: 0.1rem 0.9rem; margin: 0.6rem 0;
+                            color: var(--muted); }
+.markdown-body a { color: var(--accent); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body table { margin: 0.6rem 0; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--border);
+                                       padding: 0.4rem 0.6rem; text-transform: none;
+                                       letter-spacing: 0; font-size: 0.9rem; }
+.markdown-body strong { color: var(--fg); }
+
+/* backlinks */
+.backlinks { margin-top: 1.5rem; padding: 1rem 1.1rem; background: var(--bg-2);
+             border: 1px solid var(--border); border-radius: var(--radius); }
+.backlinks h3 { margin: 0 0 0.5rem; font-size: 0.78rem; color: var(--muted);
+                font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.backlinks ul { list-style: none; margin: 0; padding: 0; }
+.backlinks li { padding: 0.3rem 0; display: flex; gap: 0.5rem; align-items: center;
+                flex-wrap: wrap; }
+
+/* merge preview grid */
+.merge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+              margin: 1rem 0 1.25rem; }
+.merge-pane { background: var(--bg-2); border: 1px solid var(--border);
+              border-radius: var(--radius); padding: 0.85rem 1rem; }
+.merge-pane h3 { margin: 0 0 0.4rem; font-size: 0.9rem;
+                 color: var(--muted); font-weight: 600;
+                 text-transform: uppercase; letter-spacing: 0.04em; }
+.merge-body { background: var(--bg-3) !important; max-height: 320px;
+              overflow-y: auto; margin-bottom: 0 !important;
+              font-size: 0.88rem; }
+@media (max-width: 700px) { .merge-grid { grid-template-columns: 1fr; } }
+
+/* history list */
+.history-list { display: flex; flex-direction: column; gap: 0.8rem;
+                margin-top: 1rem; }
+.history-entry { background: var(--bg-2); border: 1px solid var(--border);
+                 border-radius: var(--radius); padding: 0.85rem 1rem; }
+.history-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem;
+                display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.history-snapshot { background: var(--bg-3); border: 1px solid var(--border-2);
+                    border-radius: 6px; padding: 0.7rem; margin: 0.5rem 0 0;
+                    overflow-x: auto; font-size: 0.82rem; line-height: 1.5;
+                    font-family: "JetBrains Mono", ui-monospace, monospace;
+                    color: var(--fg); white-space: pre-wrap; word-wrap: break-word; }
+details summary::-webkit-details-marker { color: var(--muted); }
+
+/* pin badge + button */
+.pin-icon { width: 14px; height: 14px; display: inline-block; vertical-align: -2px;
+            stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+            fill: none; stroke: currentColor; }
+.pin-badge { display: inline-block; margin-left: 0.35rem; vertical-align: middle;
+             color: #f0c674; }
+.pin-badge .pin-icon { fill: #f0c674; stroke: #f0c674; }
+.pin-cell { width: 1.6rem; padding-left: 0.35rem !important;
+            padding-right: 0 !important; text-align: center; }
+.pin-btn { background: none; border: none; padding: 0.25rem 0.3rem; cursor: pointer;
+           color: var(--muted); opacity: 0.25; line-height: 1;
+           transition: opacity 120ms ease, color 120ms ease; border-radius: 4px; }
+.pin-btn:hover { opacity: 1; background: var(--bg-3); color: var(--fg); }
+.pin-btn.pinned { opacity: 1; color: #f0c674; }
+.pin-btn.pinned .pin-icon { fill: #f0c674; }
+tr.is-pinned { background: rgba(240, 198, 116, 0.04); }
+tr.is-pinned td { border-bottom-color: var(--border-2); }
+tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
+.detail textarea, .detail input[type=text], .detail select {
+  width: 100%; background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border-2); border-radius: var(--radius);
+  padding: 0.6rem 0.7rem; font-family: inherit; font-size: 0.95rem;
+}
+.detail select { padding: 0.5rem 0.7rem; }
+.detail textarea { min-height: 240px;
+                   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+                   font-size: 0.88rem; line-height: 1.6; resize: vertical; }
+.detail label { display: block; margin-top: 1rem; color: var(--muted);
+                font-size: 0.74rem; text-transform: uppercase;
+                letter-spacing: 0.05em; font-weight: 600; margin-bottom: 0.3rem; }
+.charcount { display: block; text-align: right; color: var(--muted);
+             font-size: 0.78rem; margin-top: 0.25rem;
+             font-variant-numeric: tabular-nums;
+             font-family: "JetBrains Mono", ui-monospace, monospace; }
+.toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+           margin-top: 1.25rem; padding-top: 1rem;
+           border-top: 1px solid var(--border); }
+.toolbar .spacer { flex: 1; }
+
+/* meta line */
+.meta { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;
+        color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+.meta .sep { opacity: 0.5; }
+
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+@media (max-width: 700px) {
+  body { font-size: 14px; }
+  .wrap { padding: 0.85rem 0.9rem 3rem; }
+  th.small, td.small { display: none; }
+  thead th { top: 56px; }
+  header.site { padding-top: 0.4rem; padding-bottom: 0.5rem;
+                margin-bottom: 1rem; gap: 0.6rem; }
+  header.site .row { gap: 0.85rem; }
+  header.site a.brand { font-size: 1.18rem; }
+  header.site .muted { display: none; } /* hide kbd hints — no kb on phones */
+  /* tables: roomier touch targets, no hover */
+  th, td { padding: 0.7rem 0.55rem; }
+  td.date { font-size: 0.8rem; }
+  tr:hover td { background: inherit; }
+  /* form filters stack vertically */
+  form.filters { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  form.filters input, form.filters select, form.filters button, form.filters .btn {
+    width: 100%;
+  }
+  form.filters input[type=search] { min-width: 0; }
+  form.filters label.row { justify-content: flex-start; }
+  /* + new dropdown sits on the LEFT of the navbar row (after the brand
+     + nav links). Anchor menu to LEFT so it opens rightward and fits the
+     viewport. Right-anchoring (the previous default) caused the menu to
+     spill off the left edge on iPhone. min-width clamped so it doesn't
+     overflow the right side either. */
+  .dropdown-menu { left: 0; right: auto; min-width: 12rem; max-width: calc(100vw - 1.8rem); }
+  /* detail forms: bigger touch targets */
+  .detail textarea { min-height: 320px; font-size: 0.95rem; }
+  .detail input[type=text], .detail select { font-size: 1rem;
+                                              padding: 0.7rem 0.8rem; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar button, .toolbar .btn { width: 100%; text-align: center; }
+  .toolbar .spacer { display: none; }
+  /* meta row: tighter, allow wrapping */
+  .meta { gap: 0.4rem; font-size: 0.82rem; }
+  /* chips on filter bar: smaller */
+  .chip { font-size: 0.76rem; padding: 0.15rem 0.45rem; }
+  .pill { font-size: 0.74rem; }
+  /* detail body: respect viewport */
+  .detail .body-render { padding: 0.85rem 0.9rem; font-size: 0.92rem; }
+  .markdown-body pre { font-size: 0.78rem; }
+}
+@media (max-width: 480px) {
+  /* On very narrow phones, collapse the type column to a color dot only.
+     Index columns: pin, id, type, name, [hidden cols], date.
+     Type is column 3. Render the .pill text as 0px — keeps the colored
+     background as a 0.65rem dot anchored to the cell, so the user can
+     still distinguish memory types at a glance even with no label.
+     Journal table doesn't have a type column, so this is index-only. */
+  table.with-pin th:nth-child(3) { display: none; }
+  table.with-pin td:nth-child(3) {
+    width: 0.85rem; padding-left: 0.25rem; padding-right: 0.25rem;
+  }
+  table.with-pin td:nth-child(3) .pill {
+    font-size: 0; padding: 0; border: 0;
+    width: 0.65rem; height: 0.65rem;
+    border-radius: 50%; display: inline-block;
+  }
+}
+
+/* ─── Command palette (⌘K) ─── */
+.cmdk-trigger {
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: border-color 0.12s, color 0.12s;
+}
+.cmdk-trigger:hover { border-color: var(--accent); color: var(--fg); }
+.cmdk-trigger > span:first-child {
+  font-weight: 600;
+  color: var(--fg);
+}
+.cmdk-trigger-label {
+  font-family: "Plus Jakarta Sans", -apple-system, sans-serif;
+  font-size: 0.78rem;
+}
+@media (max-width: 600px) {
+  .cmdk-trigger-label { display: none; }
+}
+
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  backdrop-filter: blur(2px);
+}
+.cmdk-overlay[hidden] { display: none; }
+.cmdk-modal {
+  width: min(560px, calc(100vw - 2rem));
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+.cmdk-input {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  padding: 0.85rem 1rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+}
+.cmdk-input::placeholder { color: var(--muted); }
+.cmdk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.cmdk-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.cmdk-item.is-selected {
+  background: var(--bg-3);
+  border-left-color: var(--accent);
+}
+.cmdk-item-label {
+  font-size: 0.92rem;
+  color: var(--fg);
+}
+.cmdk-item-hint {
+  font-size: 0.78rem;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.cmdk-empty {
+  padding: 0.85rem 1rem;
+  font-size: 0.85rem;
+  text-align: center;
+}
+.cmdk-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.9rem;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.cmdk-foot .kbd { margin-right: 0.2rem; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <defs>
+    <!-- Lucide-style pin: head + body + tip + line. Filled when .pinned. -->
+    <symbol id="i-pin" viewBox="0 0 24 24">
+      <path d="M12 17v5"/>
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+    </symbol>
+  </defs>
+</svg>
+<div class="wrap">
+<header class="site">
+  <div class="row">
+    <a class="brand" href="{{ url_for('index') }}">multiagent-tools</a>
+    <a href="{{ url_for('index') }}">memories</a>
+    <a href="{{ url_for('journal_index') }}">journal</a>
+    <a href="{{ url_for('personas_index') }}">personas</a>
+    <a href="{{ url_for('digest_review') }}">digest</a>
+    <a href="{{ url_for('inventory_index') }}">inventory</a>
+    <div class="dropdown" id="new-dropdown">
+      <button type="button" class="dropdown-toggle" aria-haspopup="true" aria-expanded="false">+ new ▾</button>
+      <div class="dropdown-menu" role="menu">
+        <a href="{{ url_for('memory_new') }}" role="menuitem">
+          memory
+          <span class="desc">durable fact shared across agents</span>
+        </a>
+        <a href="{{ url_for('journal_new') }}" role="menuitem">
+          journal entry
+          <span class="desc">pin a moment in time</span>
+        </a>
+      </div>
+    </div>
+  </div>
+  <div class="row" style="gap: 0.9rem;">
+    <a href="{{ url_for('trash') }}" class="muted" style="font-size: 0.85rem;" title="restore deleted records">trash</a>
+    <button type="button" id="cmdk-trigger" class="cmdk-trigger" title="command palette (⌘K)">
+      <span>⌘K</span>
+      <span class="cmdk-trigger-label">jump to…</span>
+    </button>
+  </div>
+</header>
+
+<!-- Command palette modal. Hidden by default; toggled by ⌘K / ctrl+K / clicking the trigger button. -->
+<div id="cmdk-overlay" class="cmdk-overlay" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
+  <div class="cmdk-modal">
+    <input
+      type="text"
+      id="cmdk-input"
+      class="cmdk-input"
+      placeholder="jump to memories, journal, search, new…"
+      autocomplete="off"
+      aria-label="command search"
+    >
+    <ul id="cmdk-list" class="cmdk-list" role="listbox" aria-label="commands">
+      <!-- populated by JS -->
+    </ul>
+    <div class="cmdk-foot muted">
+      <span><span class="kbd">↑</span><span class="kbd">↓</span> nav</span>
+      <span><span class="kbd">↵</span> select</span>
+      <span><span class="kbd">esc</span> close</span>
+    </div>
+  </div>
+</div>
+{% block content %}{% endblock %}
+</div>
+<script>
+// Command palette — ⌘K / ctrl+K to open. Replaces the old g-prefix
+// shortcuts wholesale. Each command has a label, a hint (matched against
+// search text), and an action — either a URL string (navigate) or a
+// function (run). Filter is naive substring match on label + hint;
+// fastest reasonable thing for a list this small. Selection moves with
+// arrow keys, Enter fires, Escape closes.
+(function () {
+  const COMMANDS = [
+    { label: "memories",       hint: "list browse search durable facts",     action: "{{ url_for('index') }}" },
+    { label: "journal",        hint: "pinned moments timeline log",          action: "{{ url_for('journal_index') }}" },
+    { label: "personas",       hint: "bot identity claude.md persona files", action: "{{ url_for('personas_index') }}" },
+    { label: "digest",         hint: "channel recap summary review",         action: "{{ url_for('digest_review') }}" },
+    { label: "inventory",      hint: "infra hooks crons services systemd launchd", action: "{{ url_for('inventory_index') }}" },
+    { label: "trash",          hint: "deleted restore recover",              action: "{{ url_for('trash') }}" },
+    { label: "+ new memory",   hint: "create write durable fact",            action: "{{ url_for('memory_new') }}" },
+    { label: "+ new journal",  hint: "create write pin moment",              action: "{{ url_for('journal_new') }}" },
+    { label: "search memories", hint: "filter find type query input",        action: function () {
+      const s = document.querySelector('input[type="search"]');
+      if (s) { s.focus(); s.select(); }
+      else { window.location = "{{ url_for('index') }}?focus=search"; }
+    } },
+  ];
+
+  const overlay = document.getElementById("cmdk-overlay");
+  const input   = document.getElementById("cmdk-input");
+  const list    = document.getElementById("cmdk-list");
+  const trigger = document.getElementById("cmdk-trigger");
+  let selectedIndex = 0;
+  let filtered = COMMANDS.slice();
+
+  function open() {
+    overlay.removeAttribute("hidden");
+    input.value = "";
+    selectedIndex = 0;
+    filtered = COMMANDS.slice();
+    render();
+    // Defer focus until next paint so iOS Safari actually grabs it.
+    setTimeout(function () { input.focus(); input.select(); }, 0);
+  }
+
+  function close() {
+    overlay.setAttribute("hidden", "");
+  }
+
+  function render() {
+    while (list.firstChild) list.removeChild(list.firstChild);
+    filtered.forEach(function (cmd, i) {
+      const li = document.createElement("li");
+      li.className = "cmdk-item" + (i === selectedIndex ? " is-selected" : "");
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
+      li.dataset.index = i;
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "cmdk-item-label";
+      labelSpan.textContent = cmd.label;
+      const hintSpan = document.createElement("span");
+      hintSpan.className = "cmdk-item-hint muted";
+      hintSpan.textContent = cmd.hint;
+      li.appendChild(labelSpan);
+      li.appendChild(hintSpan);
+      li.addEventListener("click", function () { fire(cmd); });
+      li.addEventListener("mouseenter", function () {
+        selectedIndex = i;
+        updateSelection();
+      });
+      list.appendChild(li);
+    });
+    if (filtered.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "cmdk-empty muted";
+      empty.textContent = "no matches";
+      list.appendChild(empty);
+    }
+  }
+
+  function updateSelection() {
+    list.querySelectorAll(".cmdk-item").forEach(function (li, i) {
+      li.classList.toggle("is-selected", i === selectedIndex);
+      li.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
+    });
+    const sel = list.querySelector(".cmdk-item.is-selected");
+    if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: "nearest" });
+  }
+
+  function applyFilter() {
+    const q = input.value.trim().toLowerCase();
+    if (!q) {
+      filtered = COMMANDS.slice();
+    } else {
+      filtered = COMMANDS.filter(function (c) {
+        return (c.label + " " + c.hint).toLowerCase().indexOf(q) !== -1;
+      });
+    }
+    selectedIndex = 0;
+    render();
+  }
+
+  function fire(cmd) {
+    close();
+    if (typeof cmd.action === "function") {
+      cmd.action();
+    } else {
+      window.location = cmd.action;
+    }
+  }
+
+  // Global trigger: ⌘K (mac) or ctrl+K (everywhere else). Works even
+  // when an input/textarea has focus — that's the whole point.
+  document.addEventListener("keydown", function (ev) {
+    const isCmdK = (ev.metaKey || ev.ctrlKey) && (ev.key === "k" || ev.key === "K");
+    if (isCmdK) {
+      ev.preventDefault();
+      if (overlay.hasAttribute("hidden")) open();
+      else close();
+      return;
+    }
+    if (overlay.hasAttribute("hidden")) return;
+    // Modal-scoped keys
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      close();
+    } else if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      if (filtered.length === 0) return;
+      selectedIndex = (selectedIndex + 1) % filtered.length;
+      updateSelection();
+    } else if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      if (filtered.length === 0) return;
+      selectedIndex = (selectedIndex - 1 + filtered.length) % filtered.length;
+      updateSelection();
+    } else if (ev.key === "Enter") {
+      ev.preventDefault();
+      if (filtered[selectedIndex]) fire(filtered[selectedIndex]);
+    }
+  });
+
+  input.addEventListener("input", applyFilter);
+  trigger.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (overlay.hasAttribute("hidden")) open();
+    else close();
+  });
+  overlay.addEventListener("click", function (ev) {
+    if (ev.target === overlay) close();
+  });
+})();
+// Dropdown toggle
+(function () {
+  const dd = document.getElementById("new-dropdown");
+  if (!dd) return;
+  const toggle = dd.querySelector(".dropdown-toggle");
+  toggle.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    dd.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", dd.classList.contains("open"));
+  });
+  document.addEventListener("click", function (ev) {
+    if (!dd.contains(ev.target)) dd.classList.remove("open");
+  });
+})();
+// live char count
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("textarea[data-charcount]").forEach(function (ta) {
+    const target = document.querySelector(ta.dataset.charcount);
+    if (!target) return;
+    const update = () => { target.textContent = ta.value.length + " chars"; };
+    ta.addEventListener("input", update); update();
+  });
+});
+</script>
+</body>
+</html>

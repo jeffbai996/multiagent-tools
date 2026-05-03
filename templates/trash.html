@@ -1,0 +1,54 @@
+{% extends "_base.html" %}
+{% block title %}trash{% endblock %}
+{% block content %}
+
+<h2>trash</h2>
+<p class="muted" style="font-size: 0.85rem;">
+  Records deleted via the web UI. CLI and bot deletes are not captured here.
+  {% if entries %}<strong style="color: var(--fg);">{{ entries|length }}</strong> recent delete{{ '' if entries|length == 1 else 's' }}.{% endif %}
+</p>
+
+{% if not entries %}
+<div class="empty">
+  <h3>trash is empty</h3>
+  <p>nothing's been deleted recently.</p>
+</div>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th class="small" style="width: 6rem; text-align: right;">deleted</th>
+      <th style="width: 5rem;">kind</th>
+      <th style="width: 5rem;">id</th>
+      <th>preview</th>
+      <th class="small" style="width: 9rem;">actor</th>
+      <th style="width: 8rem;"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for h in entries %}
+    <tr>
+      <td class="small date">{{ (h.ts or '')[:10] }}</td>
+      <td>
+        <span class="pill {% if h.kind == 'memory' %}type-{{ (h.before or {}).type or 'default' }}{% endif %}">{{ h.kind }}</span>
+      </td>
+      <td>#<strong>{{ h.id }}</strong></td>
+      <td class="truncate" title="{{ (h.before or {}).text or '' }}">
+        {{ (h.before or {}).name or ((h.before or {}).text or '')[:80] }}
+      </td>
+      <td class="small muted">{{ h.actor or 'web' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('trash_restore') }}" style="margin: 0;">
+          <input type="hidden" name="ts" value="{{ h.ts }}">
+          <input type="hidden" name="kind" value="{{ h.kind }}">
+          <input type="hidden" name="id" value="{{ h.id }}">
+          <button class="btn btn-ghost" type="submit">restore</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "_base.html" %}
+{% block title %}merge into #{{ winner.id }}{% endblock %}
+{% block content %}
+
+<div class="detail" style="max-width: 1100px;">
+  <h2>
+    <span class="muted" style="font-weight: 500;">merge another memory into</span>
+    <a class="entry" href="{{ url_for('memory_detail', memory_id=winner.id) }}">#<strong>{{ winner.id }}</strong> {{ winner.name or 'untitled' }}</a>
+  </h2>
+  <p class="muted" style="font-size: 0.85rem; margin-bottom: 1rem;">
+    Pick the memory you want to <em>absorb</em> (the loser). Its text will be appended
+    to this one, every <code>#&lt;id&gt;</code> reference elsewhere will be rewritten,
+    and the loser will be moved to trash.
+  </p>
+
+  <form class="filters" method="get" action="" id="filter-form">
+    <input type="search" id="picker-q" placeholder="filter by name or id…" autocomplete="off">
+  </form>
+
+  <table class="with-pin" id="picker-table">
+    <thead>
+      <tr>
+        <th style="width: 4rem;">id</th>
+        <th style="width: 8rem;">type</th>
+        <th>name</th>
+        <th class="small" style="width: 6rem; text-align: right;">date</th>
+        <th style="width: 9rem;"></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for m in others %}
+      <tr data-search="#{{ m.id }} {{ (m.name or '')|lower }} {{ (m.text or '')[:80]|lower }}">
+        <td class="id-cell"><a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a></td>
+        <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span></td>
+        <td>
+          <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
+            {{ m.name or m.text[:80] }}
+          </a>
+        </td>
+        <td class="small date">{{ (m.ts or '')[:10] }}</td>
+        <td>
+          <a class="btn btn-ghost" href="{{ url_for('memory_merge', winner_id=winner.id, loser=m.id) }}">merge in →</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+// Client-side filter — re-uses the table without a server round trip
+(function () {
+  const q = document.getElementById("picker-q");
+  const rows = document.querySelectorAll("#picker-table tbody tr");
+  if (!q || !rows.length) return;
+  q.addEventListener("input", function () {
+    const term = q.value.trim().toLowerCase();
+    rows.forEach(function (r) {
+      const haystack = r.dataset.search || "";
+      r.style.display = (!term || haystack.includes(term)) ? "" : "none";
+    });
+  });
+})();
+</script>
+
+{% endblock %}

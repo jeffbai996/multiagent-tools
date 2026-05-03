@@ -1,0 +1,222 @@
+{% extends "_base.html" %}
+{% block title %}inventory — multiagent-tools{% endblock %}
+{% block content %}
+
+<h2>infra inventory</h2>
+<p class="muted" style="margin-top:-0.2rem;">
+Live read of hooks / crons / services across configured hosts.
+Cached server-side for ~{{ data.cache_ttl_sec }}s — reload after that to repoll.
+Source of truth lives in the canonical files; this page never writes.
+</p>
+
+<div class="host-grid">
+{% for host in data.hosts %}
+  <section class="host-card">
+    <header class="host-card-header">
+      <h3>{{ host.host }}</h3>
+      <span class="muted" style="font-size: 0.78rem;">
+        probed {{ '%.0f'|format(host.probed_at|float) }}
+      </span>
+    </header>
+
+    {# Hooks #}
+    <div class="section">
+      <h4>hooks <span class="muted" style="font-weight: 400;">({{ host.settings|length }} settings file{% if host.settings|length != 1 %}s{% endif %})</span></h4>
+      {% if not host.settings %}
+        <p class="muted">no settings.json files reachable</p>
+      {% else %}
+        {% for path, hooks in host.settings.items() %}
+          <details {% if loop.first %}open{% endif %}>
+            <summary class="path">{{ path }}</summary>
+            {% if hooks._error %}
+              <p class="error">⚠ {{ hooks._error }}</p>
+            {% elif not hooks %}
+              <p class="muted">(no hooks)</p>
+            {% else %}
+              {% for event_name, blocks in hooks.items() %}
+                <div class="hook-event">
+                  <div class="hook-event-name">{{ event_name }}</div>
+                  <ol class="hook-chain">
+                    {% for block in blocks %}
+                      {% for hook in block.hooks %}
+                        <li><code>{{ hook.command }}</code></li>
+                      {% endfor %}
+                    {% endfor %}
+                  </ol>
+                </div>
+              {% endfor %}
+            {% endif %}
+          </details>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    {# Crons #}
+    <div class="section">
+      <h4>crons <span class="muted" style="font-weight: 400;">({{ host.crons|length }})</span></h4>
+      {% if not host.crons %}
+        <p class="muted">no crontab entries</p>
+      {% else %}
+        <table class="crons-table">
+          <thead><tr><th>schedule</th><th>command</th></tr></thead>
+          <tbody>
+            {% for c in host.crons %}
+            <tr>
+              <td class="cron-schedule">{{ c.schedule }}</td>
+              <td><code>{{ c.command }}</code></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+
+    {# Systemd (linux) #}
+    {% if host.systemd is defined %}
+      <div class="section">
+        <h4>systemd user units <span class="muted" style="font-weight: 400;">({{ host.systemd|length }} enabled)</span></h4>
+        {% if not host.systemd %}
+          <p class="muted">no enabled user units</p>
+        {% else %}
+          <ul class="unit-list">
+            {% for u in host.systemd %}
+              <li><code>{{ u.name }}</code> <span class="pill" style="font-size: 0.72rem;">{{ u.state }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {# Launchd (mac) #}
+    {% if host.launchd is defined %}
+      <div class="section">
+        <h4>launchd user agents <span class="muted" style="font-weight: 400;">({{ host.launchd|length }})</span></h4>
+        {% if not host.launchd %}
+          <p class="muted">~/Library/LaunchAgents/ empty</p>
+        {% else %}
+          <ul class="unit-list">
+            {% for a in host.launchd %}
+              <li><code>{{ a.name }}</code></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    {% endif %}
+  </section>
+{% endfor %}
+</div>
+
+<style>
+.host-grid { display: grid; grid-template-columns: 1fr; gap: 1.25rem; margin-top: 1rem; }
+@media (min-width: 1100px) {
+  .host-grid { grid-template-columns: 1fr 1fr; }
+}
+.host-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+}
+.host-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.7rem;
+}
+.host-card-header h3 { margin: 0; font-size: 1.15rem; }
+.section { margin: 0.85rem 0; }
+.section h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.section details { margin: 0.3rem 0; }
+.section summary {
+  cursor: pointer;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0.3rem 0;
+}
+.section .path {
+  word-break: break-all;
+}
+.hook-event {
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-3);
+  border-radius: 6px;
+}
+.hook-event-name {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+.hook-chain {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.83rem;
+}
+.hook-chain li {
+  padding: 0.12rem 0;
+}
+.hook-chain code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+.crons-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+.crons-table th, .crons-table td {
+  text-align: left;
+  padding: 0.32rem 0.5rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.crons-table th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.crons-table code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+.crons-table .cron-schedule {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  color: var(--accent);
+}
+.unit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.unit-list li {
+  padding: 0.25rem 0;
+  font-size: 0.84rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.unit-list code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+.error { color: #ff8a8a; }
+</style>
+{% endblock %}

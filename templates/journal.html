@@ -1,0 +1,71 @@
+{% extends "_base.html" %}
+{% block title %}journal ({{ entries|length }}){% endblock %}
+{% block content %}
+
+<form class="filters" method="get">
+  <input type="search" name="q" placeholder="search journal…" value="{{ q }}" autocomplete="off">
+  <input type="number" name="days" placeholder="last N days" value="{{ days or '' }}" min="0" style="width: 9rem;">
+  <button class="btn-primary" type="submit">filter</button>
+  {% if q or days %}
+    <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">clear</a>
+  {% endif %}
+</form>
+
+{% if q or days %}
+<div class="chips">
+  <span class="muted" style="font-size: 0.82rem;">active:</span>
+  {% if q %}
+    <span class="chip"><span class="label">q</span>{{ q }}
+      <a href="{{ url_for('journal_index', days=days) }}" title="clear search">×</a></span>
+  {% endif %}
+  {% if days %}
+    <span class="chip"><span class="label">days</span>last {{ days }}
+      <a href="{{ url_for('journal_index', q=q) }}" title="clear days">×</a></span>
+  {% endif %}
+</div>
+{% endif %}
+
+<p class="muted" style="font-size: 0.85rem; margin-bottom: 0.6rem;">
+  <strong style="color: var(--fg);">{{ entries|length }}</strong> entries
+</p>
+
+{% if entries %}
+<table style="table-layout: fixed; width: 100%;">
+  <thead>
+    <tr>
+      <th style="width: 4rem;">id</th>
+      <th class="small" style="width: 6rem; text-align: right;">date</th>
+      <th class="small" style="width: 8rem;">actor</th>
+      <th>text</th>
+      <th class="small" style="width: 12rem;">tags</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in entries %}
+    <tr>
+      <td class="id-cell"><a class="entry" href="{{ url_for('journal_detail', entry_id=e.id) }}">#<strong>{{ e.id }}</strong></a></td>
+      <td class="small date">{{ (e.ts or '')[:10] }}</td>
+      <td class="small muted truncate">{{ e.actor or '—' }}</td>
+      <td class="truncate">
+        <a class="entry" href="{{ url_for('journal_detail', entry_id=e.id) }}" title="{{ e.text }}">
+          {{ e.text | highlight(q) }}
+        </a>
+      </td>
+      <td class="small truncate">
+        {% for t in e.tags or [] %}<a class="pill" href="{{ url_for('journal_index', q=t) }}">{{ t }}</a>{% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <h3>no journal entries match</h3>
+  <p>try clearing filters or expanding the date range.</p>
+  <p style="margin-top: 1rem;">
+    <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">clear filters</a>
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}
