@@ -102,10 +102,10 @@ def _extract_text(msg_obj: dict) -> str:
 
 
 # How many recent user messages the save-intent gate scans. Bumped from 1 →
-# 5 because real save flows often span turns: "save our address" (turn N) →
-# "1955 129th Ave" (turn N+1) → assistant emits [MEMORY:] (turn N+1's reply,
-# Stop fires here). With N=1 the gate only sees the address-only msg and
-# blocks. N=5 catches the "save" verb up to a few exchanges back.
+# 5 because real save flows often span turns: "remember this fact" (turn N)
+# → "<the actual fact>" (turn N+1) → assistant emits [MEMORY:] (turn N+1's
+# reply, Stop fires here). With N=1 the gate only sees the fact-only msg and
+# blocks. N=5 catches the "remember" verb up to a few exchanges back.
 GATE_USER_LOOKBACK = 5
 
 
@@ -169,12 +169,12 @@ JOU_RE = re.compile(r"\[JOURNAL(?:\s+([^:\]]+?))?:\s*(.+?)\]", re.DOTALL)
 JOU_DEL_RE = re.compile(r"\[JOURNAL_DELETE:\s*(\d+)\]")
 
 SAVE_KEYWORDS_RE = re.compile(
-    # Bare-verb gate matching ticker-tape (chat.py:1054) — any of these words
-    # in the user's last message is enough. The earlier verb+noun-adjacency
-    # variant kept gating valid requests like "delete that memory" or "nuke
-    # memory 88" because of intervening words. Bare-verb is permissive but
-    # the EXAMPLE_RE pre-strip and the [MEMORY:]/[JOURNAL:] tag form keep the
-    # false-positive rate effectively zero in practice.
+    # Bare-verb gate — any of these words in the user's last message is enough.
+    # The earlier verb+noun-adjacency variant kept gating valid requests like
+    # "delete that memory" or "nuke memory 88" because of intervening words.
+    # Bare-verb is permissive but the EXAMPLE_RE pre-strip and the
+    # [MEMORY:]/[JOURNAL:] tag form keep the false-positive rate effectively
+    # zero in practice.
     r"\b(remember|memori[sz]e|save|memo|memory|forget|"
     r"delete|remove|nuke|edit|note|remind|journal|pin|stash)\b",
     re.I,

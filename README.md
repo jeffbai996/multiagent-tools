@@ -157,7 +157,7 @@ When the assistant emits a tag in response to a Discord-originated save request,
 
 ```
 💾 Memory #42 saved
-type: feedback · name: Communication style · tags: comm, voice · about: jeff
+type: feedback · name: Communication style · tags: comm, voice · about: user
 
 Body text in italics, truncated past 600 chars.
 Multi-paragraph bodies render naturally with blank lines between.

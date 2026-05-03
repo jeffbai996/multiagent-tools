@@ -1,7 +1,7 @@
 """Shared Discord card rendering + posting for multiagent-tools actions.
 
 Both the Stop hook (when a bot emits a [MEMORY:]/[JOURNAL:] tag) and the
-CLI (`squad-store memory add|edit|delete` with --discord-* flags) post
+CLI (`multiagent-tools memory add|edit|delete` with --discord-* flags) post
 the same rendered card to Discord. Sharing the format here keeps them
 byte-for-byte consistent — drift between hook and CLI was the original
 bug that motivated this module.
@@ -158,7 +158,7 @@ def read_bot_token() -> str | None:
 
 def post_message(token: str, channel_id: str, content: str,
                  reply_to: str | None = None,
-                 user_agent: str = "squad-store-card (1.0)") -> tuple[bool, str]:
+                 user_agent: str = "multiagent-tools-card (1.0)") -> tuple[bool, str]:
     """POST /channels/<id>/messages. Returns (ok, error_message_if_failed).
 
     Best-effort, single-shot, no retry — if the network's flaky, the user
@@ -200,7 +200,7 @@ def post_message(token: str, channel_id: str, content: str,
 
 def post_action_card(action: dict, chat_id: str,
                      reply_to: str | None = None,
-                     user_agent: str = "squad-store-card (1.0)") -> tuple[bool, str]:
+                     user_agent: str = "multiagent-tools-card (1.0)") -> tuple[bool, str]:
     """Render and post a card for one action. Returns (ok, error).
 
     `ok=False, error=""` means the action wasn't renderable (e.g. delete

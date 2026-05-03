@@ -1,6 +1,6 @@
 # Saving from a Discord turn
 
-The canonical path for saving memories or journal entries during a Discord-originated bot turn is the `squad-store` CLI with `--discord-chat-id` and `--discord-message-id` flags.
+The canonical path for saving memories or journal entries during a Discord-originated bot turn is the `multiagent-tools` CLI with `--discord-chat-id` and `--discord-message-id` flags.
 
 A `[MEMORY: ...]` / `[JOURNAL: ...]` tag protocol shipped earlier where bots emitted tags inline in their assistant text and a Stop hook scanned the transcript and wrote to the store. The tag protocol is no longer recommended — bots talking *about* the syntax triggered junk saves; tags inside fenced code blocks needed scrubbing; the tag-parsing layer was hard to make robust against agents that quote the syntax in prose.
 
@@ -9,7 +9,7 @@ The current flow is one explicit command, no transcript scanning, no scrubbing.
 ## How to save
 
 ```bash
-squad-store memory add \
+multiagent-tools memory add \
   --type {user|feedback|project|reference} \
   --name "<short name>" \
   --tags "tag1,tag2" \
@@ -30,16 +30,16 @@ For terminal-only saves (no Discord context), omit the flags — the CLI's own `
 Every action posts a card with a bold prose header + a single fenced code block containing aligned meta key:value pairs and the body, separated by a horizontal rule:
 
 ```
-💾 Memory #88 saved
+💾 Memory #42 saved
 ```
-type:  reference
-name:  Seattle/Bellevue address
-tags:  address, bellevue, seattle, wa
-about: dan, jeff
+type:  feedback
+name:  Communication style
+tags:  comm, voice
+about: user
 ─────────────────────────
-**1955 129th Ave NE, Bellevue WA 98005**
+**Use direct, no glazing.**
 
-Jeff and Dan US address...
+Lead with insight, detail after.
 ```
 ```
 
