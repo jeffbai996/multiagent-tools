@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+*.swp
+.env
+.envrc
+data/
+.venv/
+.pytest_cache/
+node_modules/
+*.db
+.idea/
+.vscode/

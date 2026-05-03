@@ -1,0 +1,40 @@
+# multiagent-tools — agents registry example.
+#
+# Copy this to ~/.config/multiagent-tools/agents.yaml and edit to match
+# your setup. `personas.py` reads this on first endpoint hit.
+#
+# Each agent has any number of "slots" — named files the agent runtime
+# expects in particular places (CLAUDE.md, persona.md, system_prompt.md,
+# whatever). A slot is one (slot_name, absolute_path, mode) triple.
+#
+# mode: "plain"  — atomic write only
+# mode: "git"    — atomic write + auto-commit in `git_repo` below
+#
+# Use mode=git for files that live inside a tracked repo so persona
+# edits show up in version control. Use mode=plain for everything else.
+
+# Optional: filesystem path to a git repo. Files written with mode=git
+# get auto-committed here. Skip this key if no agents use mode=git.
+git_repo: ~/repos/agent-configs
+
+agents:
+  agent-1:
+    - slot: CLAUDE.md
+      path: ~/repos/agent-configs/agent-1/CLAUDE.md
+      mode: git
+    - slot: persona.md
+      path: ~/agents/agent-1/persona.md
+      mode: plain
+
+  agent-2:
+    - slot: CLAUDE.md
+      path: ~/agents/agent-2/CLAUDE.md
+      mode: plain
+    - slot: persona.md
+      path: ~/agents/agent-2/persona.md
+      mode: plain
+
+  agent-3:
+    - slot: persona.md
+      path: ~/repos/agent-configs/agent-3/persona.md
+      mode: git
