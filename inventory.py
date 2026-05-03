@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 from typing import Any
@@ -83,7 +84,7 @@ class WrapperSshTransport(Transport):
     def run(self, cmd: list[str], timeout: int = 8) -> tuple[int, str, str]:
         # Wrappers typically do `ssh ... "$*"` so individual args
         # concatenate space-separated; quote anything with whitespace.
-        quoted = " ".join(_shell_quote(c) for c in cmd)
+        quoted = " ".join(shlex.quote(c) for c in cmd)
         try:
             p = subprocess.run(
                 [self.wrapper, quoted],
@@ -102,12 +103,6 @@ class WrapperSshTransport(Transport):
 
 # Back-compat alias — same shape as the old class name.
 MacSshTransport = WrapperSshTransport
-
-
-def _shell_quote(s: str) -> str:
-    if not s or any(c in s for c in " \t\n\"'\\$`"):
-        return "'" + s.replace("'", "'\\''") + "'"
-    return s
 
 
 # ─────────────────────────── probes ───────────────────────────
