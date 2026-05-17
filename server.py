@@ -380,14 +380,33 @@ def api_memory_collection():
         text = body.get("text") or body.get("body") or ""
         if not text:
             return jsonify({"ok": False, "error": "missing text"}), 400
+        name = body.get("name", "")
+        if len(name) > 200:
+            return jsonify({
+                "ok": False,
+                "error": "invalid name: name cannot exceed 200 characters",
+            }), 400
+        mem_type = body.get("type", "feedback")
+        if mem_type not in store.VALID_TYPES:
+            return jsonify({
+                "ok": False,
+                "error": "invalid type: must be feedback, project, reference, or user",
+            }), 400
+        tags = _normalize_list(body.get("tags") or [])
+        if len(tags) > 20:
+            return jsonify({
+                "ok": False,
+                "error": "invalid tags: cannot exceed 20 entries",
+            }), 400
         m = store.save_memory(
             text,
-            type=body.get("type", "feedback"),
-            name=body.get("name", ""),
-            tags=body.get("tags") or [],
-            about=body.get("about") or [],
-            bot=body.get("bot"),
+            type=mem_type,
+            name=name,
+            tags=tags,
+            about=_normalize_list(body.get("about") or []),
+            bot=_normalize_list(body.get("bot")) if body.get("bot") is not None else None,
         )
+        _post_card({"kind": "memory_saved", "entry": m})
         return jsonify({"ok": True, "memory": m}), 201
 
     type_filter = request.args.get("type") or None
@@ -419,22 +438,31 @@ def api_memory_item(memory_id: int):
         return jsonify({"ok": True, "memory": m})
     if request.method == "PUT":
         body = request.get_json(silent=True) or {}
+        before = _find_memory_dict(memory_id)
         ok = history.edit_memory_with_history(
             memory_id,
             actor="api",
             text=body.get("text"),
             name=body.get("name"),
             type=body.get("type"),
-            tags=body.get("tags"),
-            about=body.get("about"),
-            bot=body.get("bot"),
+            tags=_normalize_list(body.get("tags")) if body.get("tags") is not None else None,
+            about=_normalize_list(body.get("about")) if body.get("about") is not None else None,
+            bot=_normalize_list(body.get("bot")) if body.get("bot") is not None else None,
             pinned=body.get("pinned"),
         )
         if not ok:
             return jsonify({"ok": False, "error": "not found or no fields"}), 404
+        after = _find_memory_dict(memory_id)
+        _post_card({
+            "kind": "memory_edited", "id": memory_id,
+            "before": before, "after": after,
+        })
         return jsonify({"ok": True})
     # DELETE
+    before = _find_memory_dict(memory_id)
     ok = history.remove_memory_with_history(memory_id, actor="api")
+    if ok:
+        _post_card({"kind": "memory_deleted", "before": before})
     return (jsonify({"ok": ok}),
             200 if ok else 404)
 
@@ -450,8 +478,9 @@ def api_journal_collection():
             text,
             source=body.get("source", "api"),
             actor=body.get("actor", ""),
-            tags=body.get("tags") or [],
+            tags=_normalize_list(body.get("tags") or []),
         )
+        _post_card({"kind": "journal_added", "entry": e})
         return jsonify({"ok": True, "entry": e}), 201
 
     days = request.args.get("days", type=int) or 0
@@ -475,18 +504,27 @@ def api_journal_item(entry_id: int):
         return jsonify({"ok": True, "entry": e})
     if request.method == "PUT":
         body = request.get_json(silent=True) or {}
+        before = _find_journal_dict(entry_id)
         ok = history.edit_journal_with_history(
             entry_id,
             actor="api",
             text=body.get("text"),
             entry_actor=body.get("actor"),
             source=body.get("source"),
-            tags=body.get("tags"),
+            tags=_normalize_list(body.get("tags")) if body.get("tags") is not None else None,
         )
         if not ok:
             return jsonify({"ok": False, "error": "not found or no fields"}), 404
+        after = _find_journal_dict(entry_id)
+        _post_card({
+            "kind": "journal_edited", "id": entry_id,
+            "before": before, "after": after,
+        })
         return jsonify({"ok": True})
+    before = _find_journal_dict(entry_id)
     ok = history.remove_journal_with_history(entry_id, actor="api")
+    if ok:
+        _post_card({"kind": "journal_deleted", "before": before})
     return (jsonify({"ok": ok}),
             200 if ok else 404)
 
@@ -679,6 +717,16 @@ def healthz():
 
 def _parse_csv(value: str) -> list[str]:
     return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+def _normalize_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return _parse_csv(value)
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [str(value).strip()] if str(value).strip() else []
 
 
 def _highlight(text: str, query: str | None):
