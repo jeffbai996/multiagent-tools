@@ -183,16 +183,142 @@ def _detect_calling_bot() -> str | None:
     return None
 
 
-def _post_card_if_discord(action: dict, args: argparse.Namespace) -> None:
-    """Post a confirmation card to Discord if --discord-chat-id was provided.
+def _resolve_discord_origin_from_transcript() -> tuple[str, str] | None:
+    """Auto-detect Discord chat/message IDs by reading the active Claude
+    Code transcript.
 
-    Reuses discord_card so a save via tag (Stop hook) and a save via CLI
-    produce byte-identical cards. Without --discord-chat-id, this is a no-op.
+    Used as a fallback when explicit --discord-chat-id / --discord-message-id
+    flags weren't passed but we're running inside a Claude Code session that
+    originated from a Discord-routed user turn.
+
+    Looks at the most-recently-modified .jsonl under
+    ~/.claude/projects/<cwd-encoded>/, tails it from the end, and pulls
+    the latest <channel source="plugin:discord:discord" ...> tag. The
+    "latest real user prompt" is the message the user actually meant when
+    they asked the assistant to do something.
+
+    Returns None outside a Claude Code session, when no transcript is
+    found, or when the latest user content has no Discord channel tag.
     """
-    chat_id = getattr(args, "discord_chat_id", None)
+    if os.environ.get("CLAUDECODE") != "1":
+        return None
+    projects_root = os.path.expanduser("~/.claude/projects")
+    if not os.path.isdir(projects_root):
+        return None
+    candidates: list[tuple[str, float]] = []
+    try:
+        for proj in os.listdir(projects_root):
+            sub = os.path.join(projects_root, proj)
+            if not os.path.isdir(sub):
+                continue
+            for name in os.listdir(sub):
+                if name.endswith(".jsonl"):
+                    p = os.path.join(sub, name)
+                    try:
+                        candidates.append((p, os.path.getmtime(p)))
+                    except OSError:
+                        continue
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    # Don't trust transcripts that haven't been touched in a long while —
+    # otherwise a stale transcript from a closed session could resurface
+    # an old Discord chat_id and post the card to the wrong channel.
+    import time as _time
+    transcript, mtime = max(candidates, key=lambda x: x[1])
+    if _time.time() - mtime > 600:  # 10min staleness window
+        return None
+
+    import json
+    import re
+    tag_re = re.compile(
+        r'<channel\s+source=["\'](?:plugin:discord:discord|discord)["\']'
+        r'[^>]*?chat_id=["\']([^"\']+)["\']'
+        r'[^>]*?message_id=["\']([^"\']+)["\']',
+        re.IGNORECASE,
+    )
+    try:
+        with open(transcript, "r") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+
+    # Walk backward to find the latest *real* user prompt (skipping
+    # tool_result entries — type:user but tool output, not user words).
+    for line in reversed(lines):
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") != "user":
+            continue
+        msg = obj.get("message") or {}
+        content = msg.get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text_parts: list[str] = []
+            is_real_prompt = False
+            for c in content:
+                if not isinstance(c, dict):
+                    continue
+                if c.get("type") == "tool_result":
+                    continue
+                if c.get("type") == "text" and isinstance(c.get("text"), str):
+                    text_parts.append(c["text"])
+                    is_real_prompt = True
+            if not is_real_prompt:
+                continue
+            text = "\n".join(text_parts)
+        else:
+            continue
+        if not text:
+            continue
+        matches = list(tag_re.finditer(text))
+        if matches:
+            m = matches[-1]
+            return m.group(1), m.group(2)
+        # Latest real prompt had no Discord tag — terminal-turn signal.
+        # Don't walk back into older Discord history.
+        return None
+    return None
+
+
+def _post_card_if_discord(action: dict, args: argparse.Namespace) -> None:
+    """Post a confirmation card to Discord if Discord context is available.
+
+    Resolves the target channel in priority order:
+      1. Explicit --discord-chat-id / --discord-message-id flags
+      2. (auto) Latest <channel> tag in the active Claude Code transcript
+         when running inside a Claude Code session (CLAUDECODE=1)
+      3. (fallback) Calling agent's `discord_home_channel` from agents.yaml
+         when CLAUDECODE=1 and no transcript tag matched — covers self-
+         initiated mutations that aren't tied to a specific Discord turn
+
+    With no Discord context resolvable, this is a no-op — the CLI's own
+    `Saved #N` print is the terminal-only confirmation. The CLAUDECODE
+    gate is what keeps human terminal use silent.
+    """
+    chat_id = getattr(args, "discord_chat_id", None) or ""
+    msg_id = getattr(args, "discord_message_id", None) or None
+
+    if not chat_id:
+        auto = _resolve_discord_origin_from_transcript()
+        if auto is not None:
+            chat_id, msg_id = auto
+        elif os.environ.get("CLAUDECODE") == "1":
+            # Agent invoking the CLI but the current turn isn't Discord-
+            # routed (self-initiated cleanup, scheduled task, etc). Post
+            # to that agent's home channel if agents.yaml declares one.
+            bot = _detect_calling_bot()
+            meta = personas.get_agent_meta(bot)
+            chat_id = str(meta.get("discord_home_channel") or "")
+            msg_id = None
+
     if not chat_id:
         return
-    msg_id = getattr(args, "discord_message_id", None) or None
+
     try:
         import discord_card
         ok, err = discord_card.post_action_card(
