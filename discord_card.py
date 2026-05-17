@@ -58,6 +58,7 @@ def format_card(action: dict) -> str | None:
       {kind: 'memory_edited', id: int, before: dict|None, after: dict|None}
       {kind: 'memory_deleted', before: dict|None}
       {kind: 'journal_added', entry: {...}}
+      {kind: 'journal_edited', id: int, before: dict|None, after: dict|None}
       {kind: 'journal_deleted', before: dict|None}
 
     Returns None if the action has nothing renderable (e.g. delete of a
@@ -107,6 +108,16 @@ def format_card(action: dict) -> str | None:
         ]
         body = _truncate_body(e.get("text", "")) or None
         return f"📓 **Journal #{e['id']} added**\n" + _render_card_block(meta, body)
+    if kind == "journal_edited":
+        before = action.get("before") or {}
+        after = action.get("after") or {}
+        jid = action.get("id")
+        meta = [
+            ("tags", ", ".join(after.get("tags") or before.get("tags") or []) or "—"),
+            ("actor", after.get("actor", before.get("actor", "")) or "—"),
+        ]
+        body = _truncate_body(after.get("text") or before.get("text", "")) or None
+        return f"✏️ **Journal #{jid} edited**\n" + _render_card_block(meta, body)
     if kind == "journal_deleted":
         before = action.get("before") or {}
         if not before:
