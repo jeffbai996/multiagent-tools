@@ -132,6 +132,10 @@ def _fetch_channel(channel_id: str, after_ms: int, token: str) -> list[dict]:
     return out
 
 
+_FETCH_CACHE: dict[int, tuple[float, list]] = {}
+_FETCH_CACHE_TTL_SEC = 60.0
+
+
 def fetch_window(hours: int = DEFAULT_HOURS) -> list[Message]:
     """Return all messages from configured channels within the last `hours`.
 
@@ -139,6 +143,12 @@ def fetch_window(hours: int = DEFAULT_HOURS) -> list[Message]:
     Returns [] (not raise) if token is missing — caller should check and
     render an explanatory message instead of a stack trace.
     """
+    import time as _time
+    now = _time.monotonic()
+    cached = _FETCH_CACHE.get(hours)
+    if cached is not None and (now - cached[0]) < _FETCH_CACHE_TTL_SEC:
+        return cached[1]
+
     token = _load_token()
     if not token:
         return []
@@ -146,29 +156,36 @@ def fetch_window(hours: int = DEFAULT_HOURS) -> list[Message]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_ms = int(cutoff.timestamp() * 1000)
 
-    msgs: list[Message] = []
-    for channel_name, channel_id in DIGEST_CHANNELS.items():
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch_one(item):
+        channel_name, channel_id = item
         try:
-            raw = _fetch_channel(channel_id, cutoff_ms, token)
+            return channel_name, channel_id, _fetch_channel(channel_id, cutoff_ms, token)
         except RuntimeError:
             # One channel failing shouldn't blank the whole page — skip it.
-            # Debug visibility: we surface the partial result; the channel
-            # just won't contribute messages this run.
-            continue
-        for m in raw:
-            author = m.get("author", {}) or {}
-            msgs.append({
-                "channel": channel_name,
-                "channel_id": channel_id,
-                "id": m.get("id", ""),
-                "author": author.get("username", "?"),
-                "author_id": author.get("id", ""),
-                "is_bot": bool(author.get("bot", False)),
-                "content": m.get("content", "") or "",
-                "ts": m.get("timestamp", ""),
-            })
+            return channel_name, channel_id, None
+
+    msgs: list[Message] = []
+    with ThreadPoolExecutor(max_workers=max(1, len(DIGEST_CHANNELS))) as ex:
+        for channel_name, channel_id, raw in ex.map(_fetch_one, DIGEST_CHANNELS.items()):
+            if raw is None:
+                continue
+            for m in raw:
+                author = m.get("author", {}) or {}
+                msgs.append({
+                    "channel": channel_name,
+                    "channel_id": channel_id,
+                    "id": m.get("id", ""),
+                    "author": author.get("username", "?"),
+                    "author_id": author.get("id", ""),
+                    "is_bot": bool(author.get("bot", False)),
+                    "content": m.get("content", "") or "",
+                    "ts": m.get("timestamp", ""),
+                })
 
     msgs.sort(key=lambda m: m["ts"])
+    _FETCH_CACHE[hours] = (now, msgs)
     return msgs
 
 
