@@ -320,16 +320,16 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
 }
 @media (max-width: 480px) {
   /* On very narrow phones, collapse the type column to a color dot only.
-     Index columns: pin, id, type, name, [hidden cols], date.
-     Type is column 3. Render the .pill text as 0px — keeps the colored
+     Index columns: expand, pin, id, type, name, [hidden cols], date, actions.
+     Type is column 4. Render the .pill text as 0px — keeps the colored
      background as a 0.65rem dot anchored to the cell, so the user can
      still distinguish memory types at a glance even with no label.
      Journal table doesn't have a type column, so this is index-only. */
-  table.with-pin th:nth-child(3) { display: none; }
-  table.with-pin td:nth-child(3) {
+  table.with-pin th:nth-child(4) { display: none; }
+  table.with-pin td:nth-child(4) {
     width: 0.85rem; padding-left: 0.25rem; padding-right: 0.25rem;
   }
-  table.with-pin td:nth-child(3) .pill {
+  table.with-pin td:nth-child(4) .pill {
     font-size: 0; padding: 0; border: 0;
     width: 0.65rem; height: 0.65rem;
     border-radius: 50%; display: inline-block;
@@ -445,6 +445,68 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   font-size: 0.75rem;
 }
 .cmdk-foot .kbd { margin-right: 0.2rem; }
+
+/* Inline row controls */
+.expand-cell { width: 1.4rem; padding-right: 0.2rem; }
+.expand-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.expand-btn:hover { color: var(--accent); background: var(--bg-3); }
+.expand-btn .chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.expand-btn[aria-expanded="true"] .chevron {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+.row-actions { width: 2rem; padding-left: 0.2rem; text-align: right; }
+.row-delete-form { margin: 0; display: inline; }
+.row-delete-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+tr:hover .row-delete-btn { opacity: 0.6; }
+.row-delete-btn:hover { color: #ff7b72; background: rgba(207, 34, 46, 0.12); opacity: 1; }
+.expand-row { background: var(--bg-3); }
+.expand-body {
+  padding: 0.7rem 1.2rem 0.95rem !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.expand-meta {
+  font-size: 0.78rem;
+  margin-bottom: 0.45rem;
+}
+.expand-text {
+  white-space: pre-wrap;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.85rem;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+@media (max-width: 480px) {
+  .row-delete-btn { opacity: 0.4; }
+  .expand-cell, .row-actions { width: 1.2rem; }
+}
 </style>
 </head>
 <body>
@@ -682,6 +744,30 @@ document.addEventListener("DOMContentLoaded", function () {
     const update = () => { target.textContent = ta.value.length + " chars"; };
     ta.addEventListener("input", update); update();
   });
+});
+
+document.addEventListener("click", function (ev) {
+  const btn = ev.target.closest(".expand-btn");
+  if (!btn) return;
+  const targetId = btn.getAttribute("aria-controls");
+  if (!targetId) return;
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  const isOpen = !target.hasAttribute("hidden");
+  if (isOpen) {
+    target.setAttribute("hidden", "");
+    btn.setAttribute("aria-expanded", "false");
+  } else {
+    target.removeAttribute("hidden");
+    btn.setAttribute("aria-expanded", "true");
+  }
+});
+
+document.addEventListener("submit", function (ev) {
+  const form = ev.target.closest(".row-delete-form");
+  if (!form) return;
+  const msg = form.dataset.confirm || "Delete this entry?";
+  if (!window.confirm(msg)) ev.preventDefault();
 });
 </script>
 </body>

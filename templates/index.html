@@ -3,7 +3,7 @@
 {% block content %}
 
 <form class="filters" method="get">
-  <input type="search" name="q" placeholder="search memories…" value="{{ q }}" autocomplete="off">
+  <input type="search" name="q" placeholder="{% if semantic %}semantic search…{% else %}search memories…{% endif %}" value="{{ q }}" autocomplete="off">
   <select name="type">
     <option value="">all types</option>
     {% for t in types %}
@@ -28,11 +28,28 @@
     <input type="checkbox" name="all" value="1" {% if show_all %}checked{% endif %}>
     show bot-scoped
   </label>
+  {% if semantic_available %}
+  <label class="row" style="gap: 0.3rem;" title="Vector search via vecgrep">
+    <input type="checkbox" name="semantic" value="1" {% if semantic %}checked{% endif %}>
+    semantic
+  </label>
+  {% endif %}
   <button class="btn-primary" type="submit">filter</button>
-  {% if q or type_filter or about_filter or bot_filter or show_all %}
+  {% if q or type_filter or about_filter or bot_filter or show_all or semantic %}
     <a class="btn btn-ghost" href="{{ url_for('index') }}">clear</a>
   {% endif %}
 </form>
+
+{% if semantic_warning %}
+<div class="warn" style="background: rgba(207, 122, 0, 0.15); border: 1px solid rgba(207, 122, 0, 0.4); color: #ffa657; padding: 0.5rem 0.8rem; border-radius: 6px; margin-bottom: 0.6rem; font-size: 0.85rem;">
+  {{ semantic_warning }}
+</div>
+{% endif %}
+{% if semantic and entries %}
+<p class="muted" style="font-size: 0.8rem; margin-bottom: 0.4rem;">
+  Hits ranked by semantic similarity. Treat close scores as directional, not exact.
+</p>
+{% endif %}
 
 {% if q or type_filter or about_filter or bot_filter %}
 <div class="chips">
@@ -65,6 +82,7 @@
 <table class="with-pin">
   <thead>
     <tr>
+      <th class="expand-cell"></th>
       <th class="pin-cell"></th>
       <th style="width: 4rem;">id</th>
       <th style="width: 8rem;">type</th>
@@ -72,11 +90,17 @@
       <th class="small">about</th>
       <th class="small">tags</th>
       <th class="small" style="width: 6rem; text-align: right;">date</th>
+      <th class="row-actions"></th>
     </tr>
   </thead>
   <tbody>
   {% for m in entries %}
-    <tr class="{% if m.pinned %}is-pinned{% endif %}">
+    <tr class="entry-row {% if m.pinned %}is-pinned{% endif %}" data-entry-id="{{ m.id }}">
+      <td class="expand-cell">
+        <button type="button" class="expand-btn" aria-expanded="false" aria-controls="expand-mem-{{ m.id }}" title="expand">
+          <span class="chevron">▸</span>
+        </button>
+      </td>
       <td class="pin-cell">
         <form method="post" action="{{ url_for('memory_pin', memory_id=m.id) }}" style="margin: 0;">
           <button class="pin-btn {% if m.pinned %}pinned{% endif %}" type="submit"
@@ -85,7 +109,16 @@
           </button>
         </form>
       </td>
-      <td class="id-cell"><a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a></td>
+      <td class="id-cell">
+        <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a>
+        {% if semantic and semantic_scores.get(m.id) %}
+          {% set s = semantic_scores[m.id] %}
+          <div style="font-size: 0.7rem; line-height: 1; margin-top: 0.15rem;
+                      color: {% if s >= 80 %}#3fb950{% elif s >= 76 %}#d29922{% else %}#8b949e{% endif %};">
+            {{ '%.0f' % s }}%
+          </div>
+        {% endif %}
+      </td>
       <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span></td>
       <td>
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
@@ -102,6 +135,28 @@
         {% for t in m.tags or [] %}<a class="pill" href="{{ url_for('index', q=t) }}">{{ t }}</a>{% endfor %}
       </td>
       <td class="small date">{{ (m.ts or '')[:10] }}</td>
+      <td class="row-actions">
+        <form method="post" action="{{ url_for('memory_delete_form', memory_id=m.id) }}"
+              class="row-delete-form"
+              data-confirm="Delete memory #{{ m.id }}? It moves to trash and can be restored.">
+          <button type="submit" class="row-delete-btn" title="delete (move to trash)" aria-label="delete">×</button>
+        </form>
+      </td>
+    </tr>
+    <tr id="expand-mem-{{ m.id }}" class="expand-row" hidden>
+      <td colspan="9" class="expand-body">
+        <div class="expand-meta">
+          <span class="muted">tags:</span> {% if m.tags %}{{ m.tags|join(', ') }}{% else %}<span class="muted">—</span>{% endif %}
+          {% if m.about %}
+            <span class="muted" style="margin-left: 1rem;">about:</span> {{ m.about|join(', ') }}
+          {% endif %}
+          {% if m.bot %}
+            <span class="muted" style="margin-left: 1rem;">bot:</span> {{ m.bot|join(', ') }}
+          {% endif %}
+          <span class="muted" style="margin-left: 1rem;">saved:</span> {{ m.ts or '' }}
+        </div>
+        <div class="expand-text">{{ m.text }}</div>
+      </td>
     </tr>
   {% endfor %}
   </tbody>

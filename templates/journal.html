@@ -5,11 +5,23 @@
 <form class="filters" method="get">
   <input type="search" name="q" placeholder="search journal…" value="{{ q }}" autocomplete="off">
   <input type="number" name="days" placeholder="last N days" value="{{ days or '' }}" min="0" style="width: 9rem;">
+  {% if semantic_available %}
+  <label class="row" style="gap: 0.3rem;" title="Vector search via vecgrep">
+    <input type="checkbox" name="semantic" value="1" {% if semantic %}checked{% endif %}>
+    semantic
+  </label>
+  {% endif %}
   <button class="btn-primary" type="submit">filter</button>
-  {% if q or days %}
+  {% if q or days or semantic %}
     <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">clear</a>
   {% endif %}
 </form>
+
+{% if semantic_warning %}
+<div class="warn" style="background: rgba(207, 122, 0, 0.15); border: 1px solid rgba(207, 122, 0, 0.4); color: #ffa657; padding: 0.5rem 0.8rem; border-radius: 6px; margin-bottom: 0.6rem; font-size: 0.85rem;">
+  {{ semantic_warning }}
+</div>
+{% endif %}
 
 {% if q or days %}
 <div class="chips">
@@ -33,17 +45,33 @@
 <table style="table-layout: fixed; width: 100%;">
   <thead>
     <tr>
+      <th class="expand-cell"></th>
       <th style="width: 4rem;">id</th>
       <th class="small" style="width: 6rem; text-align: right;">date</th>
       <th class="small" style="width: 8rem;">actor</th>
       <th>text</th>
       <th class="small" style="width: 12rem;">tags</th>
+      <th class="row-actions"></th>
     </tr>
   </thead>
   <tbody>
   {% for e in entries %}
     <tr>
-      <td class="id-cell"><a class="entry" href="{{ url_for('journal_detail', entry_id=e.id) }}">#<strong>{{ e.id }}</strong></a></td>
+      <td class="expand-cell">
+        <button type="button" class="expand-btn" aria-expanded="false" aria-controls="expand-jou-{{ e.id }}" title="expand">
+          <span class="chevron">▸</span>
+        </button>
+      </td>
+      <td class="id-cell">
+        <a class="entry" href="{{ url_for('journal_detail', entry_id=e.id) }}">#<strong>{{ e.id }}</strong></a>
+        {% if semantic and semantic_scores.get(e.id) %}
+          {% set s = semantic_scores[e.id] %}
+          <div style="font-size: 0.7rem; line-height: 1; margin-top: 0.15rem;
+                      color: {% if s >= 80 %}#3fb950{% elif s >= 76 %}#d29922{% else %}#8b949e{% endif %};">
+            {{ '%.0f' % s }}%
+          </div>
+        {% endif %}
+      </td>
       <td class="small date">{{ (e.ts or '')[:10] }}</td>
       <td class="small muted truncate">{{ e.actor or '—' }}</td>
       <td class="truncate">
@@ -53,6 +81,24 @@
       </td>
       <td class="small truncate">
         {% for t in e.tags or [] %}<a class="pill" href="{{ url_for('journal_index', q=t) }}">{{ t }}</a>{% endfor %}
+      </td>
+      <td class="row-actions">
+        <form method="post" action="{{ url_for('journal_delete_form', entry_id=e.id) }}"
+              class="row-delete-form"
+              data-confirm="Delete journal #{{ e.id }}? It moves to trash and can be restored.">
+          <button type="submit" class="row-delete-btn" title="delete (move to trash)" aria-label="delete">×</button>
+        </form>
+      </td>
+    </tr>
+    <tr id="expand-jou-{{ e.id }}" class="expand-row" hidden>
+      <td colspan="7" class="expand-body">
+        <div class="expand-meta">
+          <span class="muted">actor:</span> {{ e.actor or '—' }}
+          <span class="muted" style="margin-left: 1rem;">source:</span> {{ e.source or '—' }}
+          <span class="muted" style="margin-left: 1rem;">tags:</span> {% if e.tags %}{{ e.tags|join(', ') }}{% else %}<span class="muted">—</span>{% endif %}
+          <span class="muted" style="margin-left: 1rem;">saved:</span> {{ e.ts or '' }}
+        </div>
+        <div class="expand-text">{{ e.text }}</div>
       </td>
     </tr>
   {% endfor %}

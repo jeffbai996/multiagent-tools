@@ -43,6 +43,7 @@ import merger  # noqa: E402
 import personas  # noqa: E402
 import digest as digest_mod  # noqa: E402
 import inventory  # noqa: E402
+import vecgrep_client  # noqa: E402
 
 app = Flask(__name__, template_folder="templates")
 app.config["JSON_AS_ASCII"] = False  # render CJK / emoji as-is
@@ -71,6 +72,42 @@ if _url_prefix:
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_for=1)
 
 
+def _discord_target_from_request() -> tuple[str | None, str | None]:
+    """Resolve optional Discord card target from JSON body or query args."""
+    body = request.get_json(silent=True) or {}
+    chat_id = (
+        body.get("discord_chat_id")
+        or request.args.get("discord_chat_id")
+        or ""
+    )
+    message_id = (
+        body.get("discord_message_id")
+        or request.args.get("discord_message_id")
+        or ""
+    )
+    return (str(chat_id).strip() or None, str(message_id).strip() or None)
+
+
+def _post_card(action: dict) -> None:
+    """Best-effort Discord confirmation card for API/HTTP-mode CLI calls."""
+    chat_id, message_id = _discord_target_from_request()
+    if not chat_id:
+        return
+    try:
+        import discord_card
+        ok, err = discord_card.post_action_card(
+            action,
+            chat_id,
+            reply_to=message_id,
+            user_agent="multiagent-tools-api (1.0)",
+        )
+        if not ok and err:
+            print(f"[multiagent-tools card post failed] {err}", file=sys.stderr)
+    except Exception as e:
+        print(f"[multiagent-tools card post crashed] {type(e).__name__}: {e}",
+              file=sys.stderr)
+
+
 # ─────────────────────────── HTML routes ───────────────────────────
 
 
@@ -80,9 +117,43 @@ def index():
     about_filter = [a for a in request.args.getlist("about") if a]
     bot_filter = request.args.get("bot") or None
     show_all = request.args.get("all", "").lower() in ("1", "true", "on", "yes")
+    semantic = request.args.get("semantic", "").lower() in ("1", "true", "on", "yes")
     q = (request.args.get("q") or "").strip()
 
-    if q:
+    semantic_scores: dict[int, float] = {}
+    semantic_warning: str = ""
+
+    if q and semantic:
+        try:
+            id_pct_pairs = vecgrep_client.search_corpus_to_ids(
+                q,
+                vecgrep_client.VECGREP_CORPUS_MEMORIES,
+                want_kind="memory",
+            )
+            semantic_scores = dict(id_pct_pairs)
+            ranked_ids = [eid for eid, _ in id_pct_pairs]
+            all_entries_by_id = {m["id"]: m for m in store.load_memories()}
+            entries = [all_entries_by_id[i] for i in ranked_ids if i in all_entries_by_id]
+            entries = store.filter_memories(
+                entries, type=type_filter, about=about_filter or None,
+                bot=bot_filter, show_all=show_all,
+            )
+            order = {eid: i for i, eid in enumerate(ranked_ids)}
+            entries = sorted(entries, key=lambda m: order.get(m["id"], 1_000_000))
+        except vecgrep_client.VecgrepUnavailable as e:
+            semantic_warning = (
+                f"Vecgrep unavailable ({e}). Falling back to literal substring search."
+            )
+            entries = store.search_memories(q)
+            entries = store.filter_memories(
+                entries, type=type_filter, about=about_filter or None,
+                bot=bot_filter, show_all=show_all,
+            )
+            entries = sorted(
+                entries,
+                key=lambda m: (0 if m.get("pinned") else 1, -m.get("id", 0)),
+            )
+    elif q:
         entries = store.search_memories(q)
         entries = store.filter_memories(
             entries, type=type_filter, about=about_filter or None,
@@ -112,6 +183,10 @@ def index():
         about_filter=about_filter,
         bot_filter=bot_filter,
         show_all=show_all,
+        semantic=semantic,
+        semantic_available=vecgrep_client.is_available(),
+        semantic_scores=semantic_scores,
+        semantic_warning=semantic_warning,
         q=q,
         types=types,
         abouts=abouts,
@@ -123,14 +198,46 @@ def index():
 def journal_index():
     days = request.args.get("days", type=int) or 0
     q = (request.args.get("q") or "").strip()
-    if q:
+    semantic = request.args.get("semantic", "").lower() in ("1", "true", "on", "yes")
+    semantic_scores: dict[int, float] = {}
+    semantic_warning: str = ""
+
+    if q and semantic:
+        try:
+            id_pct_pairs = vecgrep_client.search_corpus_to_ids(
+                q,
+                vecgrep_client.VECGREP_CORPUS_JOURNAL,
+                want_kind="journal",
+            )
+            semantic_scores = dict(id_pct_pairs)
+            ranked_ids = [eid for eid, _ in id_pct_pairs]
+            by_id = {e["id"]: e for e in store.load_journal()}
+            entries = [by_id[i] for i in ranked_ids if i in by_id]
+        except vecgrep_client.VecgrepUnavailable as e:
+            semantic_warning = (
+                f"Vecgrep unavailable ({e}). Falling back to literal substring search."
+            )
+            entries = store.search_journal(q)
+            entries = sorted(entries, key=lambda e: e.get("id", 0), reverse=True)
+    elif q:
         entries = store.search_journal(q)
+        entries = sorted(entries, key=lambda e: e.get("id", 0), reverse=True)
     elif days:
         entries = store.journal_recent(days)
+        entries = sorted(entries, key=lambda e: e.get("id", 0), reverse=True)
     else:
         entries = store.load_journal()
-    entries = sorted(entries, key=lambda e: e.get("id", 0), reverse=True)
-    return render_template("journal.html", entries=entries, days=days, q=q)
+        entries = sorted(entries, key=lambda e: e.get("id", 0), reverse=True)
+    return render_template(
+        "journal.html",
+        entries=entries,
+        days=days,
+        q=q,
+        semantic=semantic,
+        semantic_available=vecgrep_client.is_available(),
+        semantic_scores=semantic_scores,
+        semantic_warning=semantic_warning,
+    )
 
 
 @app.route("/memory/<int:memory_id>", methods=["GET", "POST"])
