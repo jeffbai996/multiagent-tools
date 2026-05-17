@@ -1,12 +1,12 @@
-"""SessionStart hook — inject full memory store once per session.
+"""SessionStart hook — inject shared memories once per session.
 
-Output goes to stdout and is consumed by Claude Code as additional context
-prepended to the session. Paid once per session boot, then cached for the
-remainder of the session.
+Split dump strategy:
+- feedback type: full body (behavioral rules need to be pre-loaded)
+- all other types: index only (titles + tags; look up body on demand)
+- journal: last 10 days
 
-The full dump is ~33k tokens for 60 entries. Worth paying once for full
-recall; too expensive to repeat every turn. UserPromptSubmit hook handles
-per-turn refresh with a compact index instead.
+Paid once per session boot, then cached for the remainder of the session.
+UserPromptSubmit hook handles per-turn refresh with compact index + 1d journal.
 """
 
 from __future__ import annotations
@@ -45,14 +45,18 @@ def log(msg: str) -> None:
 def main() -> int:
     try:
         bot = _detect_bot()
-        mem = store.format_memories_for_prompt(bot=bot)
-        if mem:
-            print(mem)
+        mem_full = store.format_memories_for_prompt(bot=bot, types=["feedback"])
+        mem_idx = store.format_memories_index(bot=bot, exclude_types=["feedback"])
+        if mem_full:
+            print(mem_full)
             print()
-        jou = store.format_journal_for_prompt(days=30)
+        if mem_idx:
+            print(mem_idx)
+            print()
+        jou = store.format_journal_for_prompt(days=10)
         if jou:
             print(jou)
-        log(f"session_start bot={bot}: injected {len(mem)} mem + {len(jou)} jou chars")
+        log(f"session_start bot={bot}: injected {len(mem_full)} full + {len(mem_idx)} idx + {len(jou)} jou chars")
     except Exception:
         log(f"session_start crashed:\n{traceback.format_exc()}")
     return 0
