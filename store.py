@@ -81,7 +81,8 @@ class JsonStore:
         except OSError:
             return 0.0
 
-    def load(self) -> list[dict]:
+    def _load_raw(self) -> list[dict]:
+        """Load all entries including soft-deleted tombstones. Used for ID allocation."""
         current_mtime = self._file_mtime()
         if self._cache is not None and current_mtime == self._cache_mtime:
             return list(self._cache)
@@ -98,6 +99,10 @@ class JsonStore:
             log.warning("Failed to load %s: %s", self._file_path, e)
             return []
 
+    def load(self) -> list[dict]:
+        """Load live entries — tombstones (deleted=True) filtered out."""
+        return [e for e in self._load_raw() if not e.get("deleted")]
+
     def save(self, entries: list[dict]) -> None:
         os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
         try:
@@ -111,46 +116,73 @@ class JsonStore:
             log.warning("Failed to save %s: %s", self._file_path, e)
             self._invalidate()
 
-    def next_id(self, entries: list[dict]) -> int:
-        if not entries:
+    def next_id(self, entries: list[dict] | None = None) -> int:
+        """Monotonic ID allocation: max over ALL entries including tombstones, +1.
+
+        Ignores any `entries` arg passed by older callers — always reads raw to
+        guarantee monotonicity. Deleted IDs are never reused.
+        """
+        raw = self._load_raw()
+        if not raw:
             return 1
-        return max(e.get("id", 0) for e in entries) + 1
+        return max(e.get("id", 0) for e in raw) + 1
 
     def add(self, extra_fields: dict) -> dict:
-        entries = self.load()
+        raw = self._load_raw()
         entry = {
-            "id": self.next_id(entries),
+            "id": self.next_id(),
             "ts": datetime.now(timezone.utc).isoformat(),
             **extra_fields,
         }
-        entries.append(entry)
-        if len(entries) > self.max_entries:
-            entries = entries[-self.max_entries:]
-        self.save(entries)
+        raw.append(entry)
+        # Cap counts only live entries; tombstones don't count toward the cap.
+        live_count = sum(1 for e in raw if not e.get("deleted"))
+        if live_count > self.max_entries:
+            # Drop oldest live entries until we're under the cap, but keep
+            # tombstones (they're cheap and preserve ID monotonicity).
+            excess = live_count - self.max_entries
+            kept = []
+            dropped = 0
+            for e in raw:
+                if dropped < excess and not e.get("deleted"):
+                    dropped += 1
+                    continue
+                kept.append(e)
+            raw = kept
+        self.save(raw)
         return entry
 
     def update(self, entry_id: int, fields: dict) -> bool:
-        entries = self.load()
-        for e in entries:
-            if e.get("id") == entry_id:
+        raw = self._load_raw()
+        for e in raw:
+            if e.get("id") == entry_id and not e.get("deleted"):
                 e.update(fields)
-                self.save(entries)
+                self.save(raw)
                 return True
         return False
 
     def remove(self, entry_id: int) -> bool:
-        entries = self.load()
-        before = len(entries)
-        entries = [e for e in entries if e.get("id") != entry_id]
-        if len(entries) == before:
-            return False
-        self.save(entries)
-        return True
+        """Soft-delete: mark tombstone, keep ID reserved forever."""
+        raw = self._load_raw()
+        for e in raw:
+            if e.get("id") == entry_id and not e.get("deleted"):
+                e["deleted"] = True
+                e["deleted_ts"] = datetime.now(timezone.utc).isoformat()
+                self.save(raw)
+                return True
+        return False
 
     def clear(self) -> int:
-        entries = self.load()
-        count = len(entries)
-        self.save([])
+        """Soft-delete everything live. Tombstones remain to preserve ID monotonicity."""
+        raw = self._load_raw()
+        count = 0
+        ts = datetime.now(timezone.utc).isoformat()
+        for e in raw:
+            if not e.get("deleted"):
+                e["deleted"] = True
+                e["deleted_ts"] = ts
+                count += 1
+        self.save(raw)
         return count
 
 
@@ -161,6 +193,15 @@ _memories = JsonStore(MEMORIES_FILE, MEMORIES_CAP)
 
 def load_memories() -> list[dict]:
     return _memories.load()
+
+
+def load_memories_raw() -> list[dict]:
+    """Return all memories including tombstones (entries with deleted=True).
+
+    Use only for debugging — most callers want load_memories(), which filters
+    tombstones the same way the rest of the read path does.
+    """
+    return _memories._load_raw()
 
 
 def save_memory(text: str, *, type: str = "feedback", name: str = "",
@@ -343,6 +384,11 @@ _journal = JsonStore(JOURNAL_FILE, JOURNAL_CAP)
 
 def load_journal() -> list[dict]:
     return _journal.load()
+
+
+def load_journal_raw() -> list[dict]:
+    """Return all journal entries including tombstones. Debugging only."""
+    return _journal._load_raw()
 
 
 def add_journal(text: str, *, source: str = "", actor: str = "",
