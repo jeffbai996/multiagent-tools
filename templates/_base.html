@@ -543,6 +543,9 @@ tr:hover .row-delete-btn { opacity: 0.6; }
     </div>
   </div>
   <div class="row" style="gap: 0.9rem;">
+    {% if vecgrep_ui_url %}
+    <a href="{{ vecgrep_ui_url }}" target="_blank" rel="noopener" class="muted" style="font-size: 0.85rem;" title="semantic search across this store + indexed corpora via vecgrep">vecgrep ↗</a>
+    {% endif %}
     <a href="{{ url_for('trash') }}" class="muted" style="font-size: 0.85rem;" title="restore deleted records">trash</a>
     <button type="button" id="cmdk-trigger" class="cmdk-trigger" title="command palette (⌘K)">
       <span>⌘K</span>

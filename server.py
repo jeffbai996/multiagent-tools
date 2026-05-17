@@ -72,6 +72,15 @@ if _url_prefix:
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_for=1)
 
 
+# Optional vecgrep UI URL — when set, _base.html renders a nav link to it.
+VECGREP_UI_URL = os.environ.get("VECGREP_UI_URL", "").strip()
+
+
+@app.context_processor
+def _inject_globals():
+    return {"vecgrep_ui_url": VECGREP_UI_URL}
+
+
 def _discord_target_from_request() -> tuple[str | None, str | None]:
     """Resolve optional Discord card target from JSON body or query args."""
     body = request.get_json(silent=True) or {}
