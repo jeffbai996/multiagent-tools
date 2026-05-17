@@ -57,6 +57,7 @@ _maybe_proxy()
 # Local mode: import store after the proxy check.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import store  # noqa: E402
+import history  # noqa: E402
 import personas  # noqa: E402
 
 
@@ -106,6 +107,8 @@ def _print_memory_list(entries: list[dict]) -> None:
         name = m.get("name", "")
         if bot:
             name = f"{name} [bot:{','.join(bot)}]"
+        if m.get("deleted"):
+            name = f"[DEL] {name}"
         print(f"{_pad_disp('#' + str(m['id']), 5)}"
               f"{_pad_disp(m.get('type', ''), 11)}"
               f"{_pad_disp(name, 38)}"
@@ -123,10 +126,13 @@ def _print_journal_list(entries: list[dict]) -> None:
     for e in entries:
         ts = e.get("ts", "")[:10]
         actor = e.get("actor", "") or "-"
+        text = e.get("text", "")
+        if e.get("deleted"):
+            text = f"[DEL] {text}"
         print(f"{_pad_disp('#' + str(e['id']), 5)}"
               f"{_pad_disp(ts, 12)}"
               f"{_pad_disp(actor, 12)}"
-              f"{_pad_disp(e.get('text', ''), 50)}")
+              f"{_pad_disp(text, 50)}")
 
 
 def _print_memory_full(m: dict) -> None:
@@ -210,7 +216,10 @@ def _find_journal(jid: int) -> dict | None:
 def cmd_memory(args: argparse.Namespace) -> int:
     sub = args.sub
     if sub == "list":
+        base = store.load_memories_raw() if getattr(args, "include_deleted", False) \
+            else store.load_memories()
         entries = store.filter_memories(
+            entries=base,
             type=args.type,
             about=args.about or None,
             bot=_detect_calling_bot(),
@@ -255,7 +264,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
         return 0
     if sub == "delete":
         before = _find_memory(args.id)
-        ok = store.remove_memory(args.id)
+        ok = history.remove_memory_with_history(args.id, actor="cli")
         if not ok:
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
@@ -279,8 +288,19 @@ def cmd_memory(args: argparse.Namespace) -> int:
 def cmd_journal(args: argparse.Namespace) -> int:
     sub = args.sub
     if sub == "list":
-        entries = (store.journal_recent(args.days)
-                   if args.days else store.load_journal())
+        if getattr(args, "include_deleted", False):
+            entries = store.load_journal_raw()
+            if args.days:
+                # Manual day-window filter on raw set; journal_recent() already filters.
+                from datetime import datetime, timedelta, timezone
+                cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+                entries = [
+                    e for e in entries
+                    if datetime.fromisoformat(e.get("ts", "1970-01-01T00:00:00+00:00")) >= cutoff
+                ]
+        else:
+            entries = (store.journal_recent(args.days)
+                       if args.days else store.load_journal())
         _print_journal_list(entries)
         return 0
     if sub == "show":
@@ -334,7 +354,7 @@ def cmd_journal(args: argparse.Namespace) -> int:
         return 0
     if sub == "delete":
         before = _find_journal(args.id)
-        ok = store.remove_journal(args.id)
+        ok = history.remove_journal_with_history(args.id, actor="cli")
         if not ok:
             print(f"Journal #{args.id} not found", file=sys.stderr)
             return 1
@@ -443,6 +463,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="filter by subject label (repeatable, OR semantics)")
     m_list.add_argument("--all", action="store_true",
                         help="include bot-scoped entries from other bots")
+    m_list.add_argument("--include-deleted", action="store_true",
+                        help="include tombstoned entries (debugging)")
 
     m_show = msub.add_parser("show")
     m_show.add_argument("id", type=int)
@@ -480,6 +502,8 @@ def build_parser() -> argparse.ArgumentParser:
     j_list = jsub.add_parser("list")
     j_list.add_argument("--days", type=int, default=0,
                         help="filter to last N days (0 = all)")
+    j_list.add_argument("--include-deleted", action="store_true",
+                        help="include tombstoned entries (debugging)")
 
     j_show = jsub.add_parser("show")
     j_show.add_argument("id", type=int)
