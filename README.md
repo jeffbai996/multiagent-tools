@@ -9,12 +9,12 @@ Originally built to coordinate several Claude Code agents talking through Discor
 - `store.py` — JSON-backed memory + journal store (Python lib). Memories are durable facts (cap 200), journal entries are pinned moments (cap 1000). Atomic writes, last-writer-wins.
 - `cli.py` — local CLI: `multiagent-tools memory list|show|add|edit|delete|search` and same for `journal`/`persona`.
 - `client.py` — HTTP-mode CLI: same commands, but talks to the Flask server when `MULTIAGENT_URL` is set. Lets agents on remote hosts use the store transparently.
-- `server.py` — Flask web UI + JSON API on `127.0.0.1:<port>`. ⌘K palette; per-page editors; markdown rendering; pinning, trash, edit history, merge.
+- `server.py` — Flask web UI + JSON API on `127.0.0.1:<port>`. ⌘K palette; per-page editors; markdown rendering; optional vecgrep semantic search; pinning, trash, edit history, merge.
 - `personas.py` — registry of "where each agent keeps its persona files." Loaded from `~/.config/multiagent-tools/agents.yaml` (see `agents.example.yaml`). Files in a configured git repo auto-commit on save.
 - `digest.py` — pulls recent Discord channel history for human review (no LLM, no cron). Optional `/digest/summarize` endpoint hits Gemini if `GEMINI_API_KEY` is set.
 - `inventory.py` — live read of hooks (`settings.json`), crontab, systemd user units, launchd agents across each configured host. Cached 30s. Source of truth stays in canonical files; this module never writes.
 - `discord_handler.py` — Discord slash-command bot exposing `/mem` and `/journal`. Optional.
-- `hooks/` — Claude Code hooks (`stop_hook.py`, `precompact_hook.py`, etc.) that scan transcripts for `[MEMORY:]` and `[JOURNAL:]` tags and call the store.
+- `hooks/` — Claude Code hooks for context injection and pre-compaction journal snapshots. `stop_hook.py` still contains the legacy tag parser, but explicit CLI saves are the recommended write path.
 
 ## Install
 
@@ -58,6 +58,8 @@ All env vars optional unless noted.
 | `MULTIAGENT_DIGEST_CHANNELS` | `digest.py` | comma-separated `name:id` pairs for digest pull. |
 | `MULTIAGENT_SETTINGS_PATHS` | `inventory.py` | optional CSV of extra Claude Code `settings.json` paths to probe for hook chains. |
 | `GEMINI_API_KEY` | `digest.py` | enables the optional auto-summarize button on the digest page. |
+| `VECGREP_URL` | `vecgrep_client.py` | optional vecgrep endpoint for semantic search. Default `http://127.0.0.1:8765`. |
+| `VECGREP_CORPUS_MEMORIES` / `VECGREP_CORPUS_JOURNAL` | `vecgrep_client.py` | optional corpus names. Default `multiagent-tools`. |
 
 The env file at `~/.config/multiagent-tools/env` is checked as a fallback for any of the above. Shell-style:
 
@@ -74,11 +76,13 @@ multiagent-tools memory list                          # all entries
 multiagent-tools memory list --about user             # filter by subject
 multiagent-tools memory list --type feedback          # filter by type
 multiagent-tools memory show 42
+multiagent-tools memory show 42 --body-only
 multiagent-tools memory add "..." --type project --name "X" --tags a,b --about user
 
 multiagent-tools journal list
 multiagent-tools journal show 17
 multiagent-tools journal add "..." --actor agent-1 --tags a,b
+multiagent-tools journal edit 17 "updated body" --tags a,b
 
 multiagent-tools persona show agent-1 persona.md      # print file contents
 multiagent-tools persona edit agent-1 persona.md      # opens $EDITOR; saves on exit
@@ -93,8 +97,8 @@ Set `MULTIAGENT_URL=https://your-host:8443/` to run the same commands against a 
 
 | Path | What |
 | --- | --- |
-| `/` | memories index — search, filter by type/about/bot, pin/trash |
-| `/journal` | journal entries timeline |
+| `/` | memories index — search, optional semantic search, filter by type/about/bot, pin/trash |
+| `/journal` | journal entries timeline with literal or optional semantic search |
 | `/personas` | per-agent persona file editor |
 | `/digest` | recent Discord channel review (if configured) |
 | `/inventory` | live hooks/crons/services across configured hosts |
@@ -126,26 +130,35 @@ Set `MULTIAGENT_URL=https://your-host:8443/` to run the same commands against a 
 
 Journal entries are similar but simpler — `id, ts, source, actor, text, tags, pinned`.
 
+## Saving From Agents
+
+Use explicit CLI commands for real writes, especially when the request came from Discord:
+
+```bash
+multiagent-tools memory add \
+  --type feedback \
+  --name "short title" \
+  --tags "tag1,tag2" \
+  --about "subject1,subject2" \
+  --discord-chat-id "<chat_id>" \
+  --discord-message-id "<message_id>" \
+  "body text"
+```
+
+The Discord flags are optional. When present, the CLI or HTTP API posts a confirmation card back to the originating channel. For terminal-only saves, omit them.
+
 ## Hooks (Claude Code agents)
 
-The `hooks/` dir has Stop, PreCompact, UserPromptSubmit, and SessionStart hooks that:
+The `hooks/` dir has SessionStart, UserPromptSubmit, PreCompact, and legacy Stop hooks that:
 
-- scan assistant turns for `[MEMORY: ...]` and `[JOURNAL: ...]` tags and route them to `store.add_memory` / `store.add_journal`
-- inject the most recent N memory entries into UserPromptSubmit context
+- inject full feedback memories, an index of other memories, and recent journal entries into context
+- refresh a compact memory index on each user prompt
 - write a "what was the last conversation about" snapshot before context compaction
-- post visible save/edit/delete **confirmation cards** back to Discord when the request originated there (requires `MULTIAGENT_DISCORD_TOKEN`)
+- optionally run the legacy tag parser if you wire `stop_hook.py` into Claude Code
 
-Drop them into your Claude Code `settings.json` `hooks` block to enable. Tag format examples:
+The tag parser is no longer the recommended save path; use CLI commands instead. See `SAVES.md` for the rationale and Discord card flow.
 
-```
-[MEMORY: prefer integration tests over unit tests for this codebase]
-[MEMORY type=project name="rebrand" tags=infra: kicked off the rename ...]
-[JOURNAL: hit 1,000 commits today]
-[MEMORY_DELETE: 42]
-[MEMORY_EDIT: 42 | new body text]
-```
-
-### Save-intent gate
+### Legacy save-intent gate
 
 The Stop hook only fires tag handlers when one of the user's last 5 messages contains a save-intent verb (`remember`, `save`, `memory`, `forget`, `delete`, `remove`, `nuke`, `edit`, `note`, `remind`, `journal`, `pin`, `stash`, `memo`). The 5-message window catches multi-turn save flows — e.g. user says "save our address" in turn N, replies with the actual address in turn N+1, assistant emits `[MEMORY:]` in response to N+1 — without it, the gate would scan only the address-only message and silently block.
 
@@ -153,7 +166,7 @@ This prevents meta-discussion of the tag syntax from triggering real writes. To 
 
 ### Discord cards
 
-When the assistant emits a tag in response to a Discord-originated save request, the Stop hook posts a rendered confirmation card to the same channel as a reply:
+When an explicit CLI/API save includes Discord IDs, the app posts a rendered confirmation card to the same channel as a reply:
 
 ```
 💾 Memory #42 saved

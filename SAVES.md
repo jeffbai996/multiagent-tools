@@ -56,7 +56,7 @@ The code-block surface is mobile-friendly and consistent across action types —
 
 - **`store.py`** — JSON-backed memory + journal store
 - **`cli.py`** — argparse CLI; `_post_card_if_discord` calls into `discord_card` after every successful mutating op when `--discord-chat-id` is set
-- **`discord_card.py`** — shared module: `format_card(action) → str`, `post_action_card(action, chat_id, reply_to)`. Used by the CLI; the Stop hook also imports it as a fallback path
+- **`discord_card.py`** — shared module: `format_card(action) → str`, `post_action_card(action, chat_id, reply_to)`. Used by the CLI; the legacy Stop hook can also import it as a fallback path
 - **Token resolution** in `discord_card.read_bot_token()` chains through `$MULTIAGENT_DISCORD_TOKEN` → `$DISCORD_STATE_DIR/.env` → `$CLAUDE_PLUGIN_STATE_DIR/.env` → `$CLAUDE_CONFIG_DIR/channels/discord/.env` → `~/.claude/channels/discord/.env`. The `$DISCORD_STATE_DIR` priority covers multi-agent setups where each bot has its own state dir but shares `CLAUDE_CONFIG_DIR` — without it, cards post under the wrong agent identity
 
 ## Why this is the only path
