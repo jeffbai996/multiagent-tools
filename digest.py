@@ -71,7 +71,7 @@ def _load_digest_channels() -> dict[str, str]:
 # Lazy load so the module imports cleanly without a config file.
 DIGEST_CHANNELS: dict[str, str] = _load_digest_channels()
 
-DEFAULT_HOURS = 24
+DEFAULT_HOURS = 6  # narrow default — wider windows take longer to render; widen via ?hours= when needed
 HARD_MESSAGE_CAP = 200  # per channel — Discord paginates 100 max per request
 
 
