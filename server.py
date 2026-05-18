@@ -559,6 +559,19 @@ def trash_purge():
     return redirect(url_for("trash"))
 
 
+@app.route("/trash/purge-all", methods=["POST"])
+def trash_purge_all():
+    """Permanently remove EVERY trash entry from edits.jsonl in one shot.
+
+    Tombstones in memories.json / journal.json are preserved, so monotonic
+    ID allocation is untouched — the next save still gets `max(id over
+    all incl tombstones) + 1`. The only thing lost is the ability to
+    restore_deleted() these records.
+    """
+    history.purge_all_deletes()
+    return redirect(url_for("trash"))
+
+
 # ─────────────────────────── JSON API ───────────────────────────
 
 
