@@ -68,17 +68,9 @@
   {% endif %}
 </p>
 
-<div id="active-chips" class="chips" {% if not (q or type_filter or about_filter or bot_filter) %}hidden{% endif %}>
-  <span class="muted" style="font-size: 0.82rem;">active:</span>
-  {% if q %}<span class="chip" data-chip="q"><span class="label">q</span>{{ q }} <a href="#" data-clear="q" title="clear search">×</a></span>{% endif %}
-  {% if type_filter %}<span class="chip" data-chip="type"><span class="label">type</span>{{ type_filter }} <a href="#" data-clear="type" title="clear type">×</a></span>{% endif %}
-  {% for a in about_filter %}<span class="chip" data-chip="about" data-value="{{ a }}"><span class="label">about</span>{{ a }} <a href="#" data-clear-about="{{ a }}" title="clear about">×</a></span>{% endfor %}
-  {% if bot_filter %}<span class="chip" data-chip="bot"><span class="label">bot</span>{{ bot_filter }} <a href="#" data-clear="bot" title="clear bot">×</a></span>{% endif %}
-</div>
-
-<p class="muted" style="font-size: 0.85rem; margin-bottom: 0.6rem;">
-  <strong id="count-current" style="color: var(--fg);">{{ entries|length }}</strong> of
-  <strong id="count-total" style="color: var(--fg);">{{ total }}</strong> memories
+<p class="muted result-count">
+  <strong id="count-current">{{ entries|length }}</strong> of
+  <strong id="count-total">{{ total }}</strong> memories
 </p>
 
 <div id="results-container">
@@ -446,28 +438,6 @@
       });
       schedule(0);
     });
-  });
-
-  // Active-chip clear links: client-side instead of server-redirect
-  document.addEventListener("click", (e) => {
-    const clr = e.target.closest("[data-clear]");
-    if (clr) {
-      e.preventDefault();
-      const which = clr.dataset.clear;
-      if (which === "q") qInput.value = "";
-      else if (which === "type" && typeSelect) typeSelect.value = "";
-      else if (which === "bot" && botSelect) botSelect.value = "";
-      schedule(0);
-      return;
-    }
-    const clrAbout = e.target.closest("[data-clear-about]");
-    if (clrAbout) {
-      e.preventDefault();
-      if (aboutSelect && aboutSelect.value === clrAbout.dataset.clearAbout) {
-        aboutSelect.value = "";
-      }
-      schedule(0);
-    }
   });
 
   // Prevent native submit; our handlers do the work
