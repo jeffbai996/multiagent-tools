@@ -104,6 +104,41 @@ def search_corpus_to_ids(
     return [(eid, seen[eid]) for eid in order]
 
 
+def search_corpus_with_matches(
+    query: str,
+    corpus: str,
+    top_k: int | None = None,
+    want_kind: str | None = None,
+) -> list[tuple[int, float, list[str]]]:
+    """Like search_corpus_to_ids but also returns matched_by per entry.
+
+    Returns (entry_id, similarity_pct, matched_by) triples in vecgrep's
+    ranking order. matched_by is a list like ["vector"], ["bm25"], or
+    ["bm25", "vector"] — drives the V/K/VK badges in the UI.
+    """
+    hits = _post_search(query, corpus, top_k=top_k or TOP_K_DEFAULT)
+    seen_pct: dict[int, float] = {}
+    seen_matched: dict[int, set[str]] = {}
+    order: list[int] = []
+    for h in hits:
+        eid = _hit_to_entry_id(h, want_kind=want_kind)
+        if eid is None:
+            continue
+        pct = float(h.get("similarity_pct", 0.0))
+        matched = h.get("matched_by") or []
+        if eid not in seen_pct:
+            seen_pct[eid] = pct
+            seen_matched[eid] = set(matched)
+            order.append(eid)
+        else:
+            seen_pct[eid] = max(seen_pct[eid], pct)
+            seen_matched[eid].update(matched)
+    return [
+        (eid, seen_pct[eid], sorted(seen_matched[eid]))
+        for eid in order
+    ]
+
+
 def is_available() -> bool:
     try:
         req = urllib.request.Request(f"{VECGREP_URL}/api/config")
