@@ -55,6 +55,8 @@
   </noscript>
   <a class="btn btn-ghost" href="{{ url_for('index') }}" id="clear-link"
      {% if not (q or type_filter or about_filter or bot_filter or show_all or mode != 'literal') %}hidden{% endif %}>clear</a>
+  <a class="btn btn-primary new-memory-btn" href="{{ url_for('memory_new') }}"
+     title="add a new memory (n)">+ new</a>
 </form>
 
 <div id="warn-banner" class="warn" {% if not semantic_warning %}hidden{% endif %}
@@ -443,7 +445,7 @@
   // Prevent native submit; our handlers do the work
   form.addEventListener("submit", (e) => { e.preventDefault(); schedule(0); });
 
-  // Keyboard: `/` focuses search, Esc clears it
+  // Keyboard: `/` focuses search, Esc clears it, `n` opens new-memory form
   document.addEventListener("keydown", (e) => {
     const tag = (e.target.tagName || "").toLowerCase();
     const inField = tag === "input" || tag === "textarea" || tag === "select" ||
@@ -459,6 +461,9 @@
       } else {
         qInput.blur();
       }
+    } else if (e.key === "n" && !inField && !e.metaKey && !e.ctrlKey) {
+      const newBtn = document.querySelector(".new-memory-btn");
+      if (newBtn) { e.preventDefault(); window.location.href = newBtn.href; }
     }
   });
 })();
