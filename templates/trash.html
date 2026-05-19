@@ -2,7 +2,17 @@
 {% block title %}trash{% endblock %}
 {% block content %}
 
-<h2>trash</h2>
+<div class="trash-header">
+  <h2 style="margin: 0;">trash</h2>
+  {% if entries %}
+    <form method="post" action="{{ url_for('trash_purge_all') }}" style="margin: 0;"
+          onsubmit="return confirm('Permanently empty trash? This wipes {{ entries|length }} delete{{ '' if entries|length == 1 else 's' }} from recovery — tombstones (and IDs) stay reserved. Cannot be undone.');">
+      <button class="btn btn-ghost" type="submit"
+              style="color: #c66; border-color: rgba(207, 34, 46, 0.35);"
+              title="permanently wipe all trash entries (IDs stay reserved)">empty trash</button>
+    </form>
+  {% endif %}
+</div>
 <p class="muted" style="font-size: 0.85rem;">
   Records deleted via the web UI. CLI and bot deletes are not captured here.
   {% if entries %}<strong style="color: var(--fg);">{{ entries|length }}</strong> recent delete{{ '' if entries|length == 1 else 's' }}.{% endif %}

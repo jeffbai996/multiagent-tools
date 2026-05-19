@@ -120,63 +120,113 @@ def _post_card(action: dict) -> None:
 # ─────────────────────────── HTML routes ───────────────────────────
 
 
+def _search_memories(
+    *, q: str, mode: str, type_filter: str | None,
+    about_filter: list[str], bot_filter: str | None, show_all: bool,
+) -> tuple[list[dict], dict[int, float], dict[int, list[str]], str, str]:
+    """Shared search/filter pipeline for both `/` (HTML) and `/api/search` (JSON).
+
+    Returns (entries, semantic_scores, matched_by, warning, effective_mode).
+    effective_mode may differ from requested mode if vecgrep was unavailable
+    (semantic/hybrid degrade to literal).
+    """
+    semantic_scores: dict[int, float] = {}
+    matched_by: dict[int, list[str]] = {}
+    warning = ""
+    all_memories = store.load_memories()
+    by_id = {m["id"]: m for m in all_memories}
+
+    def _filter_and_sort(entries: list) -> list:
+        e = store.filter_memories(
+            entries, type=type_filter, about=about_filter or None,
+            bot=bot_filter, show_all=show_all,
+        )
+        return sorted(
+            e,
+            key=lambda m: (0 if m.get("pinned") else 1, -m.get("id", 0)),
+        )
+
+    if not q:
+        return _filter_and_sort(list(all_memories)), {}, {}, "", mode
+
+    if mode == "literal":
+        return _filter_and_sort(store.search_memories(q)), {}, {}, "", mode
+
+    # semantic or hybrid — both need vecgrep
+    try:
+        triples = vecgrep_client.search_corpus_with_matches(
+            q, vecgrep_client.VECGREP_CORPUS_MEMORIES, want_kind="memory",
+        )
+    except vecgrep_client.VecgrepUnavailable as e:
+        return (
+            _filter_and_sort(store.search_memories(q)),
+            {}, {},
+            f"Vecgrep unavailable ({e}). Falling back to literal.",
+            "literal",
+        )
+
+    semantic_scores = {eid: pct for eid, pct, _ in triples}
+    matched_by = {eid: list(m) for eid, _, m in triples}
+
+    if mode == "semantic":
+        ranked = [by_id[eid] for eid, _, _ in triples if eid in by_id]
+        ranked = store.filter_memories(
+            ranked, type=type_filter, about=about_filter or None,
+            bot=bot_filter, show_all=show_all,
+        )
+        order = {eid: i for i, (eid, _, _) in enumerate(triples)}
+        return sorted(ranked, key=lambda m: order.get(m["id"], 1_000_000)), \
+            semantic_scores, matched_by, "", mode
+
+    # hybrid: semantic ranking + literal-match boost, union with literal hits
+    sem_ids = {eid for eid, _, _ in triples}
+    literal_hits = store.search_memories(q)
+    literal_ids = {m["id"] for m in literal_hits}
+    for lid in literal_ids:
+        tags = set(matched_by.get(lid, []))
+        tags.add("bm25")
+        matched_by[lid] = sorted(tags)
+        if lid in sem_ids:
+            semantic_scores[lid] = min(100.0, semantic_scores[lid] + 5.0)
+
+    combined_ids: list[int] = []
+    for eid, _, _ in triples:
+        if eid in by_id:
+            combined_ids.append(eid)
+    for m in sorted(literal_hits, key=lambda x: -x.get("id", 0)):
+        if m["id"] not in sem_ids:
+            combined_ids.append(m["id"])
+
+    entries = [by_id[i] for i in combined_ids if i in by_id]
+    entries = store.filter_memories(
+        entries, type=type_filter, about=about_filter or None,
+        bot=bot_filter, show_all=show_all,
+    )
+    order = {i: idx for idx, i in enumerate(combined_ids)}
+    return sorted(entries, key=lambda m: order.get(m["id"], 1_000_000)), \
+        semantic_scores, matched_by, "", mode
+
+
 @app.route("/")
 def index():
     type_filter = request.args.get("type") or None
     about_filter = [a for a in request.args.getlist("about") if a]
     bot_filter = request.args.get("bot") or None
     show_all = request.args.get("all", "").lower() in ("1", "true", "on", "yes")
-    semantic = request.args.get("semantic", "").lower() in ("1", "true", "on", "yes")
     q = (request.args.get("q") or "").strip()
 
-    semantic_scores: dict[int, float] = {}
-    semantic_warning: str = ""
-
-    if q and semantic:
-        try:
-            id_pct_pairs = vecgrep_client.search_corpus_to_ids(
-                q,
-                vecgrep_client.VECGREP_CORPUS_MEMORIES,
-                want_kind="memory",
-            )
-            semantic_scores = dict(id_pct_pairs)
-            ranked_ids = [eid for eid, _ in id_pct_pairs]
-            all_entries_by_id = {m["id"]: m for m in store.load_memories()}
-            entries = [all_entries_by_id[i] for i in ranked_ids if i in all_entries_by_id]
-            entries = store.filter_memories(
-                entries, type=type_filter, about=about_filter or None,
-                bot=bot_filter, show_all=show_all,
-            )
-            order = {eid: i for i, eid in enumerate(ranked_ids)}
-            entries = sorted(entries, key=lambda m: order.get(m["id"], 1_000_000))
-        except vecgrep_client.VecgrepUnavailable as e:
-            semantic_warning = (
-                f"Vecgrep unavailable ({e}). Falling back to literal substring search."
-            )
-            entries = store.search_memories(q)
-            entries = store.filter_memories(
-                entries, type=type_filter, about=about_filter or None,
-                bot=bot_filter, show_all=show_all,
-            )
-            entries = sorted(
-                entries,
-                key=lambda m: (0 if m.get("pinned") else 1, -m.get("id", 0)),
-            )
-    elif q:
-        entries = store.search_memories(q)
-        entries = store.filter_memories(
-            entries, type=type_filter, about=about_filter or None,
-            bot=bot_filter, show_all=show_all,
-        )
+    # Back-compat: ?semantic=1 (old checkbox) maps to mode=semantic.
+    raw_mode = (request.args.get("mode") or "").lower()
+    if raw_mode in ("literal", "semantic", "hybrid"):
+        mode = raw_mode
+    elif request.args.get("semantic", "").lower() in ("1", "true", "on", "yes"):
+        mode = "semantic"
     else:
-        entries = store.filter_memories(
-            type=type_filter, about=about_filter or None,
-            bot=bot_filter, show_all=show_all,
-        )
-    # Sort pinned first, then newest id first.
-    entries = sorted(
-        entries,
-        key=lambda m: (0 if m.get("pinned") else 1, -m.get("id", 0)),
+        mode = "literal"
+
+    entries, semantic_scores, matched_by, warning, mode = _search_memories(
+        q=q, mode=mode, type_filter=type_filter, about_filter=about_filter,
+        bot_filter=bot_filter, show_all=show_all,
     )
 
     all_entries = store.load_memories()
@@ -192,10 +242,12 @@ def index():
         about_filter=about_filter,
         bot_filter=bot_filter,
         show_all=show_all,
-        semantic=semantic,
+        mode=mode,
+        semantic=(mode in ("semantic", "hybrid")),  # back-compat for any old template ref
         semantic_available=vecgrep_client.is_available(),
         semantic_scores=semantic_scores,
-        semantic_warning=semantic_warning,
+        matched_by=matched_by,
+        semantic_warning=warning,
         q=q,
         types=types,
         abouts=abouts,
@@ -507,6 +559,19 @@ def trash_purge():
     return redirect(url_for("trash"))
 
 
+@app.route("/trash/purge-all", methods=["POST"])
+def trash_purge_all():
+    """Permanently remove EVERY trash entry from edits.jsonl in one shot.
+
+    Tombstones in memories.json / journal.json are preserved, so monotonic
+    ID allocation is untouched — the next save still gets `max(id over
+    all incl tombstones) + 1`. The only thing lost is the ability to
+    restore_deleted() these records.
+    """
+    history.purge_all_deletes()
+    return redirect(url_for("trash"))
+
+
 # ─────────────────────────── JSON API ───────────────────────────
 
 
@@ -563,6 +628,70 @@ def api_memory_collection():
             bot=bot_filter, show_all=show_all,
         )
     return jsonify({"ok": True, "memories": entries, "count": len(entries)})
+
+
+@app.route("/api/search")
+def api_search():
+    """Live-search JSON endpoint backing the index page's debounced input.
+
+    Returns filtered + ranked memory entries plus per-entry semantic hints
+    when the mode requires them. The HTML view stays server-rendered on
+    initial page load; this is the in-page re-render path.
+
+    Query params:
+        q          - search string (empty allowed; returns all filtered entries)
+        mode       - literal | semantic | hybrid (default literal)
+        type       - memory type filter
+        about      - repeatable; AND-style narrow
+        bot        - bot scope filter
+        all        - "1" to include bot-scoped (default off)
+
+    Response:
+        {ok, mode, count, total, semantic_available, entries: [...],
+         semantic_scores: {id: pct}, matched_by: {id: ["vector","bm25"]},
+         warning: "..."}
+    """
+    type_filter = request.args.get("type") or None
+    about_filter = [a for a in request.args.getlist("about") if a]
+    bot_filter = request.args.get("bot") or None
+    show_all = request.args.get("all", "").lower() in ("1", "true", "on", "yes")
+    mode = (request.args.get("mode") or "literal").lower()
+    if mode not in ("literal", "semantic", "hybrid"):
+        mode = "literal"
+    q = (request.args.get("q") or "").strip()
+
+    entries, semantic_scores, matched_by, warning, mode = _search_memories(
+        q=q, mode=mode, type_filter=type_filter, about_filter=about_filter,
+        bot_filter=bot_filter, show_all=show_all,
+    )
+    total = len(store.load_memories())
+
+    # Slim payload for the client — only fields the row renderer needs.
+    def slim(m: dict) -> dict:
+        return {
+            "id": m.get("id"),
+            "type": m.get("type"),
+            "name": m.get("name"),
+            "text": m.get("text", ""),
+            "tags": m.get("tags") or [],
+            "about": m.get("about") or [],
+            "bot": m.get("bot") or [],
+            "pinned": bool(m.get("pinned")),
+            "ts": m.get("ts", ""),
+        }
+
+    return jsonify({
+        "ok": True,
+        "mode": mode,
+        "q": q,
+        "count": len(entries),
+        "total": total,
+        "semantic_available": vecgrep_client.is_available(),
+        "entries": [slim(m) for m in entries],
+        "semantic_scores": {str(k): round(v, 1) for k, v in semantic_scores.items()},
+        "matched_by": {str(k): v for k, v in matched_by.items()},
+        "warning": warning,
+    })
 
 
 @app.route("/api/memory/<int:memory_id>", methods=["GET", "PUT", "DELETE"])
