@@ -15,6 +15,7 @@ Originally built to coordinate several Claude Code agents talking through Discor
 - `inventory.py` — live read of hooks (`settings.json`), crontab, systemd user units, launchd agents across each configured host. Cached 30s. Source of truth stays in canonical files; this module never writes.
 - `discord_handler.py` — Discord slash-command bot exposing `/mem` and `/journal`. Optional.
 - `hooks/` — Claude Code hooks for context injection and pre-compaction journal snapshots. `stop_hook.py` still contains the legacy tag parser, but explicit CLI saves are the recommended write path.
+- `hooks/discord_passthrough.py` — `UserPromptSubmit` hook that intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, and blocks the prompt from reaching Claude (zero token spend). See `commands/README.md` for the dispatch contract.
 
 ## Install
 
@@ -60,6 +61,10 @@ All env vars optional unless noted.
 | `GEMINI_API_KEY` | `digest.py` | enables the optional auto-summarize button on the digest page. |
 | `VECGREP_URL` | `vecgrep_client.py` | optional vecgrep endpoint for semantic search. Default `http://127.0.0.1:8765`. |
 | `VECGREP_CORPUS_MEMORIES` / `VECGREP_CORPUS_JOURNAL` | `vecgrep_client.py` | optional corpus names. Default `multiagent-tools`. |
+| `MAT_OWNER_DISCORD_USER_ID` | `hooks/discord_passthrough.py` | the Discord `user_id` allowed to run `!cmd` and `/cmd` pass-through. Required for the hook to activate (fails closed). Alternatively place the same value in `~/.config/multiagent-tools/owner_id`. |
+| `MAT_OWNER_ID_FILE` | `hooks/discord_passthrough.py` | override the owner_id file path. Default `~/.config/multiagent-tools/owner_id`. |
+| `MAT_COMMANDS_DIR` | `hooks/discord_passthrough.py` | where to find `/cmd` registry scripts. Default `<repo>/commands/`. |
+| `MAT_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/multiagent-tools/passthrough.log`. |
 
 The env file at `~/.config/multiagent-tools/env` is checked as a fallback for any of the above. Shell-style:
 

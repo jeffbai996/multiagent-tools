@@ -2,22 +2,28 @@
 {% block title %}memories ({{ entries|length }}/{{ total }}){% endblock %}
 {% block content %}
 
-<form class="filters" method="get">
-  <input type="search" name="q" placeholder="{% if semantic %}semantic search…{% else %}search memories…{% endif %}" value="{{ q }}" autocomplete="off">
-  <select name="type">
+<form class="filters" id="filters-form" method="get"
+      data-api-search="{{ url_for('api_search') }}"
+      data-detail-base="{{ url_for('memory_detail', memory_id=0)[:-1] }}"
+      data-pin-base="/memory"
+      data-semantic-available="{{ 'true' if semantic_available else 'false' }}">
+  <input type="search" id="q-input" name="q"
+         placeholder="search memories… ( / to focus )"
+         value="{{ q }}" autocomplete="off">
+  <select name="type" id="type-select">
     <option value="">all types</option>
     {% for t in types %}
       <option value="{{ t }}" {% if t == type_filter %}selected{% endif %}>{{ t | type_label }}</option>
     {% endfor %}
   </select>
-  <select name="about">
+  <select name="about" id="about-select">
     <option value="">all subjects</option>
     {% for a in abouts %}
       <option value="{{ a }}" {% if a in about_filter %}selected{% endif %}>{{ a }}</option>
     {% endfor %}
   </select>
   {% if bots %}
-  <select name="bot">
+  <select name="bot" id="bot-select">
     <option value="">any bot</option>
     {% for b in bots %}
       <option value="{{ b }}" {% if b == bot_filter %}selected{% endif %}>{{ b }}</option>
@@ -25,59 +31,51 @@
   </select>
   {% endif %}
   <label class="row" style="gap: 0.3rem;">
-    <input type="checkbox" name="all" value="1" {% if show_all %}checked{% endif %}>
+    <input type="checkbox" name="all" id="all-checkbox" value="1" {% if show_all %}checked{% endif %}>
     show bot-scoped
   </label>
+
   {% if semantic_available %}
-  <label class="row" style="gap: 0.3rem;" title="Vector search via vecgrep">
-    <input type="checkbox" name="semantic" value="1" {% if semantic %}checked{% endif %}>
-    semantic
-  </label>
+  <div class="mode-toggle" role="group" aria-label="search mode" title="search mode">
+    {% for m in ['literal', 'semantic', 'hybrid'] %}
+      <button type="button" class="mode-btn mode-{{ m }} {% if mode == m %}active{% endif %}"
+              data-mode="{{ m }}" aria-pressed="{{ 'true' if mode == m else 'false' }}"
+              title="{{ {'literal': 'substring match — fast, exact', 'semantic': 'vector search via vecgrep — finds meaning, not just words', 'hybrid': 'both: semantic ranking with literal-match boost (V/K/VK badges)'}[m] }}">
+        {{ m }}
+      </button>
+    {% endfor %}
+    <input type="hidden" name="mode" id="mode-input" value="{{ mode }}">
+  </div>
+  {% else %}
+    <input type="hidden" name="mode" id="mode-input" value="literal">
   {% endif %}
-  <button class="btn-primary" type="submit">filter</button>
-  {% if q or type_filter or about_filter or bot_filter or show_all or semantic %}
-    <a class="btn btn-ghost" href="{{ url_for('index') }}">clear</a>
-  {% endif %}
+
+  <noscript>
+    <button class="btn-primary" type="submit">filter</button>
+  </noscript>
+  <a class="btn btn-ghost" href="{{ url_for('index') }}" id="clear-link"
+     {% if not (q or type_filter or about_filter or bot_filter or show_all or mode != 'literal') %}hidden{% endif %}>clear</a>
+  <a class="btn btn-primary new-memory-btn" href="{{ url_for('memory_new') }}"
+     title="add a new memory (n)">+ new</a>
 </form>
 
-{% if semantic_warning %}
-<div class="warn" style="background: rgba(207, 122, 0, 0.15); border: 1px solid rgba(207, 122, 0, 0.4); color: #ffa657; padding: 0.5rem 0.8rem; border-radius: 6px; margin-bottom: 0.6rem; font-size: 0.85rem;">
+<div id="warn-banner" class="warn" {% if not semantic_warning %}hidden{% endif %}
+     style="background: rgba(207, 122, 0, 0.15); border: 1px solid rgba(207, 122, 0, 0.4); color: #ffa657; padding: 0.5rem 0.8rem; border-radius: 6px; margin-bottom: 0.6rem; font-size: 0.85rem;">
   {{ semantic_warning }}
 </div>
-{% endif %}
-{% if semantic and entries %}
-<p class="muted" style="font-size: 0.8rem; margin-bottom: 0.4rem;">
-  Hits ranked by semantic similarity. Treat close scores as directional, not exact.
-</p>
-{% endif %}
-
-{% if q or type_filter or about_filter or bot_filter %}
-<div class="chips">
-  <span class="muted" style="font-size: 0.82rem;">active:</span>
-  {% if q %}
-    <span class="chip"><span class="label">q</span>{{ q }}
-      <a href="{{ url_for('index', type=type_filter, about=about_filter, bot=bot_filter, all='1' if show_all else None) }}" title="clear search">×</a></span>
+<p id="semantic-hint" class="muted" style="font-size: 0.8rem; margin-bottom: 0.4rem;"
+   {% if mode == 'literal' or not entries %}hidden{% endif %}>
+  {% if mode == 'semantic' %}Hits ranked by semantic similarity. Treat close scores as directional.
+  {% elif mode == 'hybrid' %}Semantic ranking with literal-match boost. <strong>VK</strong> = both retrievers fired, <strong>V</strong> = semantic only, <strong>K</strong> = keyword only.
   {% endif %}
-  {% if type_filter %}
-    <span class="chip"><span class="label">type</span>{{ type_filter }}
-      <a href="{{ url_for('index', q=q, about=about_filter, bot=bot_filter, all='1' if show_all else None) }}" title="clear type">×</a></span>
-  {% endif %}
-  {% for a in about_filter %}
-    <span class="chip"><span class="label">about</span>{{ a }}
-      <a href="{{ url_for('index', q=q, type=type_filter, bot=bot_filter, all='1' if show_all else None, about=about_filter|reject('equalto', a)|list) }}" title="clear about">×</a></span>
-  {% endfor %}
-  {% if bot_filter %}
-    <span class="chip"><span class="label">bot</span>{{ bot_filter }}
-      <a href="{{ url_for('index', q=q, type=type_filter, about=about_filter, all='1' if show_all else None) }}" title="clear bot">×</a></span>
-  {% endif %}
-</div>
-{% endif %}
-
-<p class="muted" style="font-size: 0.85rem; margin-bottom: 0.6rem;">
-  <strong style="color: var(--fg);">{{ entries|length }}</strong> of
-  <strong style="color: var(--fg);">{{ total }}</strong> memories
 </p>
 
+<p class="muted result-count">
+  <strong id="count-current">{{ entries|length }}</strong> of
+  <strong id="count-total">{{ total }}</strong> memories
+</p>
+
+<div id="results-container">
 {% if entries %}
 <table class="with-pin">
   <thead>
@@ -111,12 +109,18 @@
       </td>
       <td class="id-cell">
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a>
-        {% if semantic and semantic_scores.get(m.id) %}
+        {% if mode in ('semantic', 'hybrid') and semantic_scores.get(m.id) %}
           {% set s = semantic_scores[m.id] %}
+          {% set mb = matched_by.get(m.id) or [] %}
+          {% set has_v = 'vector' in mb %}{% set has_k = 'bm25' in mb %}
           <div style="font-size: 0.7rem; line-height: 1; margin-top: 0.15rem;
                       color: {% if s >= 80 %}#3fb950{% elif s >= 76 %}#d29922{% else %}#8b949e{% endif %};">
             {{ '%.0f' % s }}%
           </div>
+          {% if has_v or has_k %}
+            <span class="match-badge match-{{ 'vk' if (has_v and has_k) else ('v' if has_v else 'k') }}"
+                  title="{{ 'vector + bm25 — both retrievers fired' if (has_v and has_k) else ('vector — semantic match' if has_v else 'bm25 — literal keyword match') }}">{{ 'VK' if (has_v and has_k) else ('V' if has_v else 'K') }}</span>
+          {% endif %}
         {% endif %}
       </td>
       <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span></td>
@@ -171,5 +175,297 @@
   </p>
 </div>
 {% endif %}
+</div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Live search for the memories index. Debounced re-fetch on input/filter
+// change. Server-rendered initial page works without JS; this is a
+// progressive enhancement.
+(function () {
+  "use strict";
+
+  const form = document.getElementById("filters-form");
+  if (!form) return;
+
+  const qInput = document.getElementById("q-input");
+  const typeSelect = document.getElementById("type-select");
+  const aboutSelect = document.getElementById("about-select");
+  const botSelect = document.getElementById("bot-select");
+  const allCb = document.getElementById("all-checkbox");
+  const modeInput = document.getElementById("mode-input");
+  const resultsContainer = document.getElementById("results-container");
+  const countCurrent = document.getElementById("count-current");
+  const countTotal = document.getElementById("count-total");
+  const semHint = document.getElementById("semantic-hint");
+  const warnBanner = document.getElementById("warn-banner");
+  const clearLink = document.getElementById("clear-link");
+
+  const apiUrl = form.dataset.apiSearch;
+  const detailBase = form.dataset.detailBase; // ".../memory/"
+  const pinBase = form.dataset.pinBase || "/memory";
+  const semanticAvailable = form.dataset.semanticAvailable === "true";
+
+  let debounceTimer = null;
+  let inflight = null; // AbortController for cancel-stale-request
+
+  function escHtml(s) {
+    if (s == null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function highlightHtml(text, q) {
+    const safe = escHtml(text);
+    if (!q) return safe;
+    // Escape regex special chars in q, then wrap matches in <mark>.
+    const needle = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return safe.replace(new RegExp(needle, "gi"), (m) => "<mark>" + m + "</mark>");
+  }
+
+  function scoreColor(s) {
+    if (s >= 80) return "#3fb950";
+    if (s >= 76) return "#d29922";
+    return "#8b949e";
+  }
+
+  function badgeFor(matched) {
+    const hasV = matched && matched.indexOf("vector") >= 0;
+    const hasK = matched && matched.indexOf("bm25") >= 0;
+    if (!hasV && !hasK) return "";
+    const label = (hasV && hasK) ? "VK" : (hasV ? "V" : "K");
+    const cls = (hasV && hasK) ? "match-vk" : (hasV ? "match-v" : "match-k");
+    const title = (hasV && hasK)
+      ? "vector + bm25 — both retrievers fired"
+      : (hasV ? "vector — semantic match" : "bm25 — literal keyword match");
+    return ' <span class="match-badge ' + cls + '" title="' + escHtml(title) + '">' + label + "</span>";
+  }
+
+  function renderRows(data) {
+    const { entries, mode, q, semantic_scores, matched_by } = data;
+    if (!entries.length) {
+      resultsContainer.innerHTML =
+        '<div class="empty"><h3>no memories match</h3>' +
+        '<p>try clearing filters or searching differently.</p></div>';
+      return;
+    }
+
+    const showSemantic = mode === "semantic" || mode === "hybrid";
+
+    let html =
+      '<table class="with-pin"><thead><tr>' +
+      '<th class="expand-cell"></th><th class="pin-cell"></th>' +
+      '<th style="width: 4rem;">id</th><th style="width: 8rem;">type</th>' +
+      '<th>name</th><th class="small">about</th><th class="small">tags</th>' +
+      '<th class="small" style="width: 6rem; text-align: right;">date</th>' +
+      '<th class="row-actions"></th></tr></thead><tbody>';
+
+    for (const m of entries) {
+      const detailUrl = detailBase + m.id;
+      const pinAction = pinBase + "/" + m.id + "/pin";
+      const delAction = pinBase + "/" + m.id + "/delete";
+      const pinClass = m.pinned ? "is-pinned" : "";
+      const pinBtnClass = m.pinned ? "pinned" : "";
+      const pinTitle = m.pinned ? "unpin" : "pin to top";
+
+      const score = semantic_scores ? semantic_scores[String(m.id)] : null;
+      const matched = matched_by ? matched_by[String(m.id)] : null;
+
+      let scoreHtml = "";
+      if (showSemantic && score != null) {
+        scoreHtml =
+          '<div style="font-size: 0.7rem; line-height: 1; margin-top: 0.15rem; color: ' +
+          scoreColor(score) + ';">' + Math.round(score) + "%</div>" + badgeFor(matched);
+      }
+
+      const aboutsHtml = (m.about || []).map(a =>
+        '<a class="pill" href="?about=' + encodeURIComponent(a) + '">' + escHtml(a) + "</a>"
+      ).join("");
+      const tagsHtml = (m.tags || []).map(t =>
+        '<a class="pill" href="?q=' + encodeURIComponent(t) + '">' + escHtml(t) + "</a>"
+      ).join("");
+
+      const botPill = (m.bot && m.bot.length)
+        ? ' <span class="pill" style="background: rgba(207, 34, 46, 0.15); color: #ff7b72; border-color: rgba(207, 34, 46, 0.3);">bot:' + escHtml(m.bot.join(",")) + "</span>"
+        : "";
+
+      const nameDisplay = m.name || (m.text || "").slice(0, 80);
+      const typeClass = m.type || "default";
+      const typeLabel = m.type === "user" ? "profile" : (m.type || "");
+      const dateStr = (m.ts || "").slice(0, 10);
+
+      html +=
+        '<tr class="entry-row ' + pinClass + '" data-entry-id="' + m.id + '">' +
+        '<td class="expand-cell"><button type="button" class="expand-btn" aria-expanded="false" aria-controls="expand-mem-' + m.id + '" title="expand"><span class="chevron">▸</span></button></td>' +
+        '<td class="pin-cell"><form method="post" action="' + pinAction + '" style="margin: 0;">' +
+        '<button class="pin-btn ' + pinBtnClass + '" type="submit" title="' + pinTitle + '" aria-label="pin">' +
+        '<svg class="pin-icon"><use href="#i-pin"/></svg></button></form></td>' +
+        '<td class="id-cell"><a class="entry" href="' + detailUrl + '">#<strong>' + m.id + "</strong></a>" + scoreHtml + "</td>" +
+        '<td><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span></td>" +
+        '<td><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill + "</td>" +
+        '<td class="small">' + aboutsHtml + "</td>" +
+        '<td class="small">' + tagsHtml + "</td>" +
+        '<td class="small date">' + escHtml(dateStr) + "</td>" +
+        '<td class="row-actions"><form method="post" action="' + delAction +
+        '" class="row-delete-form" data-confirm="Delete memory #' + m.id +
+        '? It moves to trash and can be restored."><button type="submit" class="row-delete-btn" title="delete (move to trash)" aria-label="delete">×</button></form></td>' +
+        "</tr>" +
+        '<tr id="expand-mem-' + m.id + '" class="expand-row" hidden>' +
+        '<td colspan="9" class="expand-body">' +
+        '<div class="expand-meta">' +
+        '<span class="muted">tags:</span> ' + ((m.tags && m.tags.length) ? escHtml(m.tags.join(", ")) : '<span class="muted">—</span>') +
+        ((m.about && m.about.length) ? ' <span class="muted" style="margin-left: 1rem;">about:</span> ' + escHtml(m.about.join(", ")) : "") +
+        ((m.bot && m.bot.length) ? ' <span class="muted" style="margin-left: 1rem;">bot:</span> ' + escHtml(m.bot.join(", ")) : "") +
+        ' <span class="muted" style="margin-left: 1rem;">saved:</span> ' + escHtml(m.ts || "") +
+        "</div>" +
+        '<div class="expand-text">' + escHtml(m.text || "") + "</div>" +
+        "</td></tr>";
+    }
+    html += "</tbody></table>";
+    resultsContainer.innerHTML = html;
+  }
+
+  function updateChrome(data) {
+    const { mode, count, total, warning, q } = data;
+    countCurrent.textContent = count;
+    countTotal.textContent = total;
+
+    if (warning) {
+      warnBanner.textContent = warning;
+      warnBanner.removeAttribute("hidden");
+    } else {
+      warnBanner.setAttribute("hidden", "");
+    }
+
+    if (semHint) {
+      if (mode === "literal" || count === 0) {
+        semHint.setAttribute("hidden", "");
+      } else {
+        semHint.removeAttribute("hidden");
+        semHint.innerHTML = (mode === "semantic")
+          ? "Hits ranked by semantic similarity. Treat close scores as directional."
+          : "Semantic ranking with literal-match boost. <strong>VK</strong> = both retrievers fired, <strong>V</strong> = semantic only, <strong>K</strong> = keyword only.";
+      }
+    }
+
+    // mode-toggle button states reflect server-canonicalized mode (may have
+    // degraded to literal if vecgrep was down).
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      const isActive = btn.dataset.mode === mode;
+      btn.classList.toggle("active", isActive);
+      btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+    if (modeInput) modeInput.value = mode;
+
+    // Clear link visible when any filter is engaged.
+    const anyActive = q || (typeSelect && typeSelect.value) ||
+      (aboutSelect && aboutSelect.value) || (botSelect && botSelect.value) ||
+      (allCb && allCb.checked) || (mode !== "literal");
+    if (anyActive) clearLink.removeAttribute("hidden");
+    else clearLink.setAttribute("hidden", "");
+  }
+
+  function syncUrl() {
+    const params = new URLSearchParams();
+    if (qInput.value) params.set("q", qInput.value);
+    if (typeSelect && typeSelect.value) params.set("type", typeSelect.value);
+    if (aboutSelect && aboutSelect.value) params.set("about", aboutSelect.value);
+    if (botSelect && botSelect.value) params.set("bot", botSelect.value);
+    if (allCb && allCb.checked) params.set("all", "1");
+    if (modeInput && modeInput.value && modeInput.value !== "literal") {
+      params.set("mode", modeInput.value);
+    }
+    const qs = params.toString();
+    history.replaceState(null, "", qs ? "?" + qs : window.location.pathname);
+  }
+
+  async function fetchAndRender() {
+    if (inflight) inflight.abort();
+    inflight = new AbortController();
+    const params = new URLSearchParams();
+    if (qInput.value) params.set("q", qInput.value);
+    if (typeSelect && typeSelect.value) params.set("type", typeSelect.value);
+    if (aboutSelect && aboutSelect.value) params.set("about", aboutSelect.value);
+    if (botSelect && botSelect.value) params.set("bot", botSelect.value);
+    if (allCb && allCb.checked) params.set("all", "1");
+    if (modeInput && modeInput.value) params.set("mode", modeInput.value);
+
+    try {
+      const resp = await fetch(apiUrl + "?" + params.toString(), {
+        signal: inflight.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!resp.ok) {
+        warnBanner.textContent = "search failed: HTTP " + resp.status;
+        warnBanner.removeAttribute("hidden");
+        return;
+      }
+      const data = await resp.json();
+      renderRows(data);
+      updateChrome(data);
+      syncUrl();
+    } catch (err) {
+      if (err.name === "AbortError") return; // stale request, ignore
+      warnBanner.textContent = "search failed: " + (err.message || err);
+      warnBanner.removeAttribute("hidden");
+    } finally {
+      inflight = null;
+    }
+  }
+
+  function schedule(delay) {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(fetchAndRender, delay);
+  }
+
+  // Wire inputs
+  qInput.addEventListener("input", () => schedule(180));
+  if (typeSelect) typeSelect.addEventListener("change", () => schedule(0));
+  if (aboutSelect) aboutSelect.addEventListener("change", () => schedule(0));
+  if (botSelect) botSelect.addEventListener("change", () => schedule(0));
+  if (allCb) allCb.addEventListener("change", () => schedule(0));
+
+  // Mode toggle
+  document.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (modeInput) modeInput.value = btn.dataset.mode;
+      document.querySelectorAll(".mode-btn").forEach((b) => {
+        const isActive = b === btn;
+        b.classList.toggle("active", isActive);
+        b.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+      schedule(0);
+    });
+  });
+
+  // Prevent native submit; our handlers do the work
+  form.addEventListener("submit", (e) => { e.preventDefault(); schedule(0); });
+
+  // Keyboard: `/` focuses search, Esc clears it, `n` opens new-memory form
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    const inField = tag === "input" || tag === "textarea" || tag === "select" ||
+                    e.target.isContentEditable;
+    if (e.key === "/" && !inField) {
+      e.preventDefault();
+      qInput.focus();
+      qInput.select();
+    } else if (e.key === "Escape" && document.activeElement === qInput) {
+      if (qInput.value) {
+        qInput.value = "";
+        schedule(0);
+      } else {
+        qInput.blur();
+      }
+    } else if (e.key === "n" && !inField && !e.metaKey && !e.ctrlKey) {
+      const newBtn = document.querySelector(".new-memory-btn");
+      if (newBtn) { e.preventDefault(); window.location.href = newBtn.href; }
+    }
+  });
+})();
+</script>
 {% endblock %}

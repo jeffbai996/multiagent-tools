@@ -275,6 +275,56 @@ def purge_history_entry(history_entry: dict) -> bool:
     return True
 
 
+def purge_all_deletes() -> int:
+    """Permanently remove every delete-history entry from edits.jsonl.
+
+    Powers the trash-page 'empty trash' button. Edit history (non-delete
+    lines) is preserved — only entries with `deleted=True` are removed,
+    matching exactly what load_recent_deletes() surfaces in the UI.
+
+    Tombstones in memories.json / journal.json are NOT touched; this only
+    wipes the recoverability path so restore_deleted() can no longer find
+    these records. IDs stay reserved forever via tombstones, same as a
+    single-row purge — monotonic ID allocation is preserved.
+
+    Atomic write (temp + rename). Returns the count of removed lines.
+    """
+    if not os.path.exists(EDITS_FILE):
+        return 0
+    try:
+        with open(EDITS_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError as e:
+        log.warning("purge_all: failed to read %s: %s", EDITS_FILE, e)
+        return 0
+
+    kept: list[str] = []
+    removed = 0
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            kept.append(line)
+            continue
+        if obj.get("deleted") is True:
+            removed += 1
+            continue
+        kept.append(line)
+
+    if removed == 0:
+        return 0
+
+    tmp = EDITS_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+        os.replace(tmp, EDITS_FILE)
+    except OSError as e:
+        log.warning("purge_all: failed to rewrite %s: %s", EDITS_FILE, e)
+        return 0
+    return removed
+
+
 def restore_deleted(history_entry: dict) -> dict | None:
     """Re-add a deleted record. Reuses original id if free, else assigns a new one
     and stamps `restored_from_id` for traceability.
