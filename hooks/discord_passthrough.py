@@ -102,6 +102,35 @@ COMMANDS_DIR = Path(
     or Path(__file__).resolve().parent.parent / "commands"
 )
 
+# Persisted cwd across !cmd invocations. Each bash subprocess is short-lived,
+# so we stash the post-command pwd here and read it back on the next call.
+# Reset with `!cd` (no args) or `!cd ~`.
+CWD_STATE_FILE = Path(
+    os.environ.get("MAT_CWD_STATE_FILE")
+    or Path.home() / ".cache" / "multiagent-tools" / "passthrough_cwd"
+)
+
+
+def _read_persisted_cwd() -> str:
+    """Return the persisted cwd, or $HOME if missing/invalid."""
+    home = str(Path.home())
+    try:
+        if CWD_STATE_FILE.is_file():
+            cwd = CWD_STATE_FILE.read_text().strip().splitlines()[0].strip()
+            if cwd and Path(cwd).is_dir():
+                return cwd
+    except OSError:
+        pass
+    return home
+
+
+def _write_persisted_cwd(cwd: str) -> None:
+    try:
+        CWD_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CWD_STATE_FILE.write_text(cwd + "\n")
+    except OSError:
+        pass
+
 # Same tag pattern the other hooks use, but capture user_id too.
 CHANNEL_TAG_RE = re.compile(
     r'<channel\s+source="(?:plugin:discord:discord|discord)"\s+'
@@ -419,22 +448,40 @@ def check_denylist(cmd: str) -> str | None:
 
 
 def run_command(cmd: str, timeout_s: int) -> tuple[str, int, bool]:
-    """Run cmd via `bash -lc`. Returns (output, exit_code, timed_out)."""
+    """Run cmd via `bash -lc` in the persisted cwd. Updates persisted cwd
+    from the post-command pwd (so `cd foo` carries to the next invocation).
+
+    Returns (output, exit_code, timed_out).
+    """
+    start_cwd = _read_persisted_cwd()
+    home = str(Path.home())
+    sentinel = "__MAT_PASSTHROUGH_CWD__"
+    wrapped = f"{cmd}\n_mat_rc=$?\nprintf '\\n%s%s\\n' '{sentinel}' \"$(pwd)\"\nexit $_mat_rc"
+
     try:
         proc = subprocess.run(
-            ["bash", "-lc", cmd],
+            ["bash", "-lc", wrapped],
             capture_output=True,
             text=True,
             timeout=timeout_s,
-            cwd=str(Path.home()),
+            cwd=start_cwd,
         )
-        # Merge stdout + stderr in order is hard with capture_output; concat is
-        # close enough for shell pass-through (most commands emit one or the other).
         out = proc.stdout
         if proc.stderr:
             if out and not out.endswith("\n"):
                 out += "\n"
             out += proc.stderr
+
+        new_cwd = start_cwd
+        if sentinel in out:
+            idx = out.rfind(sentinel)
+            new_cwd_line = out[idx + len(sentinel):].split("\n", 1)[0].strip()
+            if new_cwd_line and Path(new_cwd_line).is_dir():
+                new_cwd = new_cwd_line
+            out = out[:idx].rstrip("\n")
+        if new_cwd != start_cwd or start_cwd != home:
+            _write_persisted_cwd(new_cwd)
+
         return out, proc.returncode, False
     except subprocess.TimeoutExpired as e:
         partial = ""
@@ -453,8 +500,18 @@ def run_command(cmd: str, timeout_s: int) -> tuple[str, int, bool]:
 def format_inline(cmd: str, output: str, exit_code: int, timed_out: bool, timeout_s: int) -> str:
     """Format short output for inline Discord reply (≤2000 chars)."""
     # Use `$` echo prefix for raw shell; for /slash commands the line already
-    # starts with `/`, so no prefix needed.
-    cmd_line = cmd if cmd.startswith("/") else f"$ {cmd}"
+    # starts with `/`, so no prefix needed. For bash, prepend cwd hint if we're
+    # not at $HOME — gives the user spatial awareness across multi-step sessions.
+    if cmd.startswith("/"):
+        cmd_line = cmd
+    else:
+        cwd = _read_persisted_cwd()
+        home = str(Path.home())
+        if cwd != home:
+            disp = "~" + cwd[len(home):] if cwd.startswith(home + "/") else cwd
+            cmd_line = f"{disp} $ {cmd}"
+        else:
+            cmd_line = f"$ {cmd}"
     # Reserve room for fences + cmd echo + exit line
     fence_overhead = len("```\n\n```")  # opening + closing fence + newlines
     exit_line = ""

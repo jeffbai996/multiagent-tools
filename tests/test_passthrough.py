@@ -318,3 +318,58 @@ def test_format_inline_truncates_long_output():
     msg = dp.format_inline("dump", huge, 0, False, 30)
     assert "[output truncated" in msg
     assert len(msg) <= dp.INLINE_LIMIT + 50  # small overhead allowance
+
+
+# ---------------------------- persistent cwd ---------------------------------
+
+
+def test_run_command_persists_cd(tmp_path, monkeypatch):
+    """`!cd <dir>` should carry to the next `!cmd` invocation."""
+    state = tmp_path / "cwd"
+    monkeypatch.setattr(dp, "CWD_STATE_FILE", state)
+    target = tmp_path / "subdir"
+    target.mkdir()
+
+    out, code, _ = dp.run_command(f"cd {target}", 5)
+    assert code == 0
+    assert state.read_text().strip() == str(target)
+
+    out2, code2, _ = dp.run_command("pwd", 5)
+    assert code2 == 0
+    assert str(target) in out2
+
+
+def test_run_command_resets_when_command_changes_cwd_back(tmp_path, monkeypatch):
+    state = tmp_path / "cwd"
+    state.write_text("/tmp\n")
+    monkeypatch.setattr(dp, "CWD_STATE_FILE", state)
+    home = str(Path.home())
+
+    out, code, _ = dp.run_command(f"cd {home}", 5)
+    assert code == 0
+    assert state.read_text().strip() == home
+
+
+def test_run_command_sentinel_stripped_from_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(dp, "CWD_STATE_FILE", tmp_path / "cwd")
+    out, code, _ = dp.run_command("echo hello", 5)
+    assert "hello" in out
+    assert "__MAT_PASSTHROUGH_CWD__" not in out
+
+
+def test_format_inline_shows_cwd_when_not_home(tmp_path, monkeypatch):
+    state = tmp_path / "cwd"
+    # Use tmp_path itself — guaranteed to exist and not be $HOME.
+    state.write_text(str(tmp_path) + "\n")
+    monkeypatch.setattr(dp, "CWD_STATE_FILE", state)
+
+    msg = dp.format_inline("ls", "foo", 0, False, 30)
+    # Path won't start with $HOME, so it'll render as absolute.
+    assert str(tmp_path) in msg
+    assert "$ ls" in msg
+
+
+def test_format_inline_no_cwd_prefix_when_at_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(dp, "CWD_STATE_FILE", tmp_path / "nonexistent")
+    msg = dp.format_inline("ls", "foo", 0, False, 30)
+    assert msg.split("\n", 2)[1] == "$ ls"
