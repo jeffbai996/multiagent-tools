@@ -218,4 +218,4 @@ Source of truth (`settings.json`, `crontab`, `systemd` units) stays in its canon
 
 ## License
 
-MIT.
+MIT
