@@ -211,7 +211,7 @@ def test_denylist_blocks(cmd):
 
 @pytest.mark.parametrize("cmd", [
     "ls /tmp",
-    "rm -rf /home/jbai/some-temp-dir",  # specific subdir, not root
+    "rm -rf /home/agent/some-temp-dir",  # specific subdir, not root
     "git push origin feature/x",
     "echo hello",
     "cat /etc/hostname",

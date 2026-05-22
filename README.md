@@ -154,14 +154,95 @@ The Discord flags are optional. When present, the CLI or HTTP API posts a confir
 
 ## Hooks (Claude Code agents)
 
-The `hooks/` dir has SessionStart, UserPromptSubmit, PreCompact, and legacy Stop hooks that:
+The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into your `settings.json`. Each is independent — adopt only what you need.
 
-- inject full feedback memories, an index of other memories, and recent journal entries into context
-- refresh a compact memory index on each user prompt
-- write a "what was the last conversation about" snapshot before context compaction
-- optionally run the legacy tag parser if you wire `stop_hook.py` into Claude Code
+### Memory / journal integration (the original set)
 
-The tag parser is no longer the recommended save path; use CLI commands instead. See `SAVES.md` for the rationale and Discord card flow.
+- **`session_start_hook.py`** (SessionStart) — injects full feedback memories, an index of other memories, and recent journal entries into context on session boot.
+- **`user_prompt_hook.py`** (UserPromptSubmit) — refreshes a compact memory index on each user prompt.
+- **`precompact_hook.py`** (PreCompact) — writes a "what was the last conversation about" snapshot before context compaction. Routes through `MULTIAGENT_URL` if set, else direct import.
+- **`stop_hook.py`** (Stop) — legacy tag-parser save path. **Use CLI commands as the recommended write path** (`multiagent-tools memory add ...`). The Stop hook is retained for back-compat; see [Legacy save-intent gate](#legacy-save-intent-gate) for the syntax. See `SAVES.md` for the rationale and Discord card flow.
+
+### Discord pass-through + slash dispatch
+
+- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `MAT_OWNER_DISCORD_USER_ID` or `~/.config/multiagent-tools/owner_id`.
+
+### Voice surfacing — narrate + tool-watcher
+
+- **`narrate.py`** (PostToolUse `--mode watch` + Stop `--mode finalize`) — surfaces the agent's between-tool prose to Discord. Watcher tails the transcript for new `type:assistant` text blocks and posts/edits a `🧠 *Narrating…*` placeholder in the originating channel. Finalize fires on Stop — mode determines what happens to the placeholder.
+
+  Per-channel mode lives in `<bot_root>/channels/discord/narrate.json`:
+
+  ```json
+  { "<chat_id>": "collapse" | "always" | "never" }
+  ```
+
+  - **`collapse`** (alias: `auto`) — placeholder posted live, **deleted at Stop** after the real reply lands. Best for fast turns. (Legacy "auto" is migrated on read.)
+  - **`always`** — placeholder converted at Stop into a `🧠 **Narration**` quoted block kept **above** the real reply. Persistent, reviewable.
+  - **`never`** — no narration. Default.
+
+  Live placeholder uses Discord's `>>>` multi-line blockquote. Triple-backticks in prose are neutralized so they don't break the outer fence. The watcher rotates segments on mid-turn reply landings.
+
+- **`tool_watcher.py`** (PostToolUse) — surfaces tool calls themselves into the same per-turn segment that narrate.py owns. Per-channel mode in `<bot_root>/channels/discord/tools.json`:
+
+  ```json
+  { "<chat_id>": "off" | "collapse" | "ticker" | "diffs" | "full" }
+  ```
+
+  - **`ticker`** — one-line `! ToolName(short args)` per call. Errored calls render as `- ...` (red). Cross-platform color via ` ```diff ` fence. Persists past Stop.
+  - **`collapse`** — same as ticker while live, deleted at Stop. Symmetric with narrate's `collapse`.
+  - **`diffs`** — ticker + ` ```diff ` unified diff for Edit/Write/MultiEdit.
+  - **`full`** — diffs + ` ``` ` fenced Bash stdout (secret-stripped).
+  - **`off`** — disabled (default).
+
+### Discord echo + guardrails
+
+- **`react_hook.py`** — emoji reaction signaller. Called with `--mode received|working|replied|terminal|memorized|compacted|crosscheck|notified` from various Claude Code hook events. State partitioned per-agent so multiple agents sharing a host don't clobber each other. Emoji map:
+
+  | Mode       | Emoji | When                                         |
+  |---         |---    |---                                            |
+  | received   | 👀    | UserPromptSubmit — agent has the message     |
+  | working    | varies | PreToolUse — type of tool (🤔 think, 🔨 edit, 🔍 research, …) |
+  | replied    | ✅    | PostToolUse on Discord reply tool            |
+  | terminal   | 🖥️    | Stop — Discord-origin turn with no reply / no content react |
+  | memorized  | 💾    | Stop — turn wrote a memory/journal entry     |
+  | compacted  | 🗜️    | PreCompact — context was compacted           |
+  | crosscheck | 🔀    | PostToolUse on reply tool — chat_id doesn't match any inbound origin (cross-channel leak warning) |
+  | notified   | 🔔    | External — `notify_hook` mirrored a system notification |
+
+  Terminal-mode keeps one 🖥️ per channel (sliding-forward). Suppresses 🖥️ when an explicit content react was made (the react IS the response).
+
+- **`discord_echo_guard.py`** (Stop) — blocks turn end (exit 2) when a Discord-origin user message was responded to only in terminal — no reply / react. Forces the model to actually echo to Discord. Passes through when `stop_hook_active=true` so retries don't loop. Cooperates with react_hook's terminal mode to avoid premature 🖥️ stamps.
+
+- **`paginate_guard.py`** (PreToolUse) — rejects Discord `reply` calls whose `text` would auto-paginate a fenced code block. Discord chunks at 2000 chars by character boundary, butchering backticks. The guard tells the model to write the body to `/tmp/<name>.md` and attach instead.
+
+- **`scrub_tags.py`** (PreToolUse) — mutator on `mcp__plugin_discord_discord__reply`. Strips `[MEMORY:...]`, `[MEMORY_EDIT:…]`, `[MEMORY_DELETE:…]`, `[JOURNAL:…]`, `[JOURNAL_DELETE:…]` tags from outbound `text` so they don't leak visibly into Discord. Stop hook still captures the tags from the transcript.
+
+- **`discord_mention_resolver.py`** (UserPromptSubmit) — resolves `<@USER_ID>` mentions in inbound Discord messages to human-readable names. Roster loaded from `~/.config/multiagent-tools/discord_roster.json` (or `MAT_DISCORD_ROSTER`). The running agent's own ID comes from `MAT_BOT_DISCORD_USER_ID`. Injects a `Discord mentions resolved:` block; adds an explicit warning when this agent was addressed.
+
+### Lifecycle + system
+
+- **`inject_time.py`** (UserPromptSubmit) — injects a one-line wall-clock stamp on every prompt. Compensates for stale `currentDate` in long-running sessions.
+- **`notify_hook.py`** (Notification) — mirrors Claude Code system notifications (permission prompts, elicitation dialogs) to Discord. Target channel via `NOTIFY_CHANNEL_ID` env, else the most recent Discord-origin chat. Best-effort drops a 🔔 reaction via `react_hook --mode notified`.
+
+### Env vars (per-hook overrides)
+
+All log + state paths default under `~/.local/state/multiagent-tools/`. Override individually:
+
+| Var | Hook | What |
+|---|---|---|
+| `MAT_REACT_HOOK_LOG` / `MAT_REACT_HOOK_STATE` | react_hook | log + state paths |
+| `MAT_NARRATE_LOG` / `MAT_NARRATE_STATE` | narrate | log + state paths |
+| `MAT_TOOL_WATCHER_LOG` | tool_watcher | log path |
+| `MAT_ECHO_GUARD_LOG` | discord_echo_guard | log path |
+| `MAT_PAGINATE_GUARD_LOG` / `MAT_PAGINATE_GUARD_LIMIT` | paginate_guard | log path + char limit (default 1900) |
+| `MAT_SCRUB_TAGS_LOG` | scrub_tags | log path |
+| `MAT_NOTIFY_HOOK_LOG` | notify_hook | log path |
+| `MAT_STOP_HOOK_LOG` | react_hook (memorized mode) | stop-hook log path to scan for 💾 trigger |
+| `MAT_REACT_HOOK_BIN` | notify_hook | path to react_hook entrypoint for `--mode notified` |
+| `MAT_DISCORD_ROSTER` | discord_mention_resolver | path to user_id → name JSON |
+| `MAT_BOT_DISCORD_USER_ID` | discord_mention_resolver | running agent's own Discord user_id |
+| `DISCORD_STATE_DIR` | several | per-agent Discord plugin state dir override |
 
 ### Legacy save-intent gate
 

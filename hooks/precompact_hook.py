@@ -57,7 +57,7 @@ if not os.access(_HERE, os.W_OK):
     LOG_PATH = os.path.expanduser("~/.local/share/multiagent-tools/precompact_hook.log")
 
 # Bot identity. Set MULTIAGENT_BOT in env for explicit naming. Otherwise:
-# 1) derive from CLAUDE_CONFIG_DIR last path segment (e.g. ~/.claude-alt → "claude-alt")
+# 1) derive from CLAUDE_CONFIG_DIR last path segment (e.g. ~/.claude-other → "claude-other")
 # 2) fall back to hostname.
 HOST = socket.gethostname()
 explicit = os.environ.get("MULTIAGENT_BOT", "").strip()

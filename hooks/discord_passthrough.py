@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """UserPromptSubmit hook: Discord shell + slash pass-through.
 
-When a Discord-origin message from Jeff starts with `!` or `/<known-cmd>`,
-intercept it: execute on this host and reply directly to Discord, then BLOCK
-the prompt so Claude never sees it (no token spend, no model turn).
+When a Discord-origin message from the configured owner starts with `!`
+(raw shell) or `/<known-cmd>` (registered command), intercept it: execute
+on this host and reply directly to Discord, then BLOCK the prompt so the
+model never sees it (no token spend, no model turn).
 
 Two prefix modes:
 
@@ -12,18 +13,18 @@ Two prefix modes:
   /help                    -> built-in: list registered commands
   /log [N]                 -> built-in: tail passthrough.log
   /status                  -> built-in: uptime + disk + load
-  /<name> arg1 arg2        -> file-registry: runs ~/repos/cc-context/commands/<name>.{sh,py}
+  /<name> arg1 arg2        -> file-registry: runs <commands>/<name>.{sh,py}
 
-Unmatched `/cmd` falls through to Claude (so Claude Code's native /loop,
-/schedule, /compact etc. still work normally).
+Unmatched `/cmd` falls through to the model (so Claude Code's native
+/loop, /schedule, /compact etc. still work normally).
 
 Trigger:
   - Inbound message has a <channel source="plugin:discord:discord" ...> tag
-  - The tag's user_id matches CC_OWNER_DISCORD_USER_ID (env)
+  - The tag's user_id matches MAT_OWNER_DISCORD_USER_ID (env or owner_id file)
   - Body (after the tag) starts with `!` OR `/<known-cmd>`
 
 Safety:
-  - Sender gate: only Jeff's user_id (CLAUDE.md "approved" trust model)
+  - Sender gate: only the configured owner's user_id (fail-closed)
   - Denylist on raw shell (`!`): rm -rf /, fork bomb, shutdown, mkfs, etc.
   - Slash commands skip the denylist (the script files themselves are the gate
     — you can't run anything that isn't already in the registry)
@@ -141,8 +142,8 @@ CHANNEL_TAG_RE = re.compile(
 )
 
 # Denylist: regex patterns that block execution outright. Match against the
-# raw command string. These are the obvious foot-guns Jeff explicitly asked
-# to gate; not an exhaustive sandbox.
+# raw command string. These are the obvious foot-guns to gate by default;
+# not an exhaustive sandbox.
 DENYLIST = [
     # rm -rf targeting / (root), $HOME, ~, * — but NOT /subdir/...
     # The target must be the WHOLE word, so we require end-of-string or whitespace
@@ -315,7 +316,7 @@ def is_registered_slash(name: str) -> bool:
 
 
 def _resolve_slash_file(name: str) -> Path | None:
-    """Find ~/repos/cc-context/commands/<name>.{sh,py}. Returns Path or None."""
+    """Find <COMMANDS_DIR>/<name>.{sh,py}. Returns Path or None."""
     if not COMMANDS_DIR.is_dir():
         return None
     # Guard against path traversal — name must be a bare identifier.
@@ -663,7 +664,7 @@ def main() -> int:
     token = _read_token(state_dir)
     if not token:
         log(f"no token at {state_dir}/.env; cannot reply, passing prompt through")
-        return 0  # let Claude handle it normally so Jeff at least sees something
+        return 0  # let the model handle it normally so the sender sees a response
 
     if mode == "bash":
         cmd = parsed["cmd"]
