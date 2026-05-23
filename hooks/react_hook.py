@@ -22,9 +22,9 @@ Hooks must be fast and silent — all reactions fire-and-forget with short
 HTTP timeouts. Failures are logged and never propagate.
 
 Env vars:
-  MAT_REACT_HOOK_LOG    override log path
+  CCDK_REACT_HOOK_LOG    override log path
                         (default ~/.local/state/cc-discord-kit/react_hook.log)
-  MAT_REACT_HOOK_STATE  override per-message idempotency state path
+  CCDK_REACT_HOOK_STATE  override per-message idempotency state path
                         (default ~/.local/state/cc-discord-kit/react_hook_state.json)
   DISCORD_STATE_DIR     explicit override for the bot's channel state dir
                         (default <CLAUDE_CONFIG_DIR>/channels/discord)
@@ -55,7 +55,7 @@ def _state_root() -> str:
 
 
 def _resolve_log_path() -> str:
-    explicit = os.environ.get("MAT_REACT_HOOK_LOG")
+    explicit = os.environ.get("CCDK_REACT_HOOK_LOG")
     if explicit:
         return explicit
     return os.path.join(_state_root(), "react_hook.log")
@@ -65,7 +65,7 @@ LOG_PATH = _resolve_log_path()
 
 
 def _resolve_state_path() -> str:
-    explicit = os.environ.get("MAT_REACT_HOOK_STATE")
+    explicit = os.environ.get("CCDK_REACT_HOOK_STATE")
     if explicit:
         return explicit
     return os.path.join(_state_root(), "react_hook_state.json")
@@ -702,9 +702,9 @@ def _echo_guard_recently_blocked(origins: list[tuple[str, str]]) -> bool:
     Log line format: 'BLOCK origins=[(...,...)] ...' with the msg_id
     embedded; we substring-match rather than parse for resilience.
 
-    Override the log location with MAT_ECHO_GUARD_LOG.
+    Override the log location with CCDK_ECHO_GUARD_LOG.
     """
-    log_path = os.environ.get("MAT_ECHO_GUARD_LOG") or os.path.join(
+    log_path = os.environ.get("CCDK_ECHO_GUARD_LOG") or os.path.join(
         _state_root(), "discord_echo_guard.log"
     )
     if not os.path.exists(log_path):
@@ -1213,8 +1213,8 @@ def handle_memorized(payload: dict) -> int:
 
     # stop_hook writes its events to this path when memory/journal writes
     # happen. If the file doesn't exist, the Stop hook isn't wired up here
-    # and there's nothing to read. Override with MAT_STOP_HOOK_LOG.
-    stop_log = os.environ.get("MAT_STOP_HOOK_LOG") or os.path.join(
+    # and there's nothing to read. Override with CCDK_STOP_HOOK_LOG.
+    stop_log = os.environ.get("CCDK_STOP_HOOK_LOG") or os.path.join(
         _state_root(), "stop_hook.log"
     )
     if not os.path.exists(stop_log):

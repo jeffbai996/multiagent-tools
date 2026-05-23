@@ -52,7 +52,7 @@ try:
 except OSError:
     pass
 LOG_PATH = os.environ.get(
-    "MAT_NOTIFY_HOOK_LOG", os.path.join(_STATE_DIR, "notify_hook.log")
+    "CCDK_NOTIFY_HOOK_LOG", os.path.join(_STATE_DIR, "notify_hook.log")
 )
 
 # Same Discord-origin tag pattern react_hook uses.
@@ -181,10 +181,10 @@ def _discord_post(token: str, channel_id: str, content: str) -> bool:
 def _drop_notified_reaction(payload: dict) -> None:
     """Best-effort: invoke react_hook --mode notified to drop a 🔔.
 
-    Resolves the script path via MAT_REACT_HOOK_BIN env or falls back to
+    Resolves the script path via CCDK_REACT_HOOK_BIN env or falls back to
     `python3 <hooks_dir>/react_hook.py`. Silent on failure.
     """
-    bin_path = os.environ.get("MAT_REACT_HOOK_BIN", "").strip()
+    bin_path = os.environ.get("CCDK_REACT_HOOK_BIN", "").strip()
     if bin_path:
         cmd = [bin_path, "--mode", "notified"]
     else:

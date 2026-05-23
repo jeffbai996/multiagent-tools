@@ -20,7 +20,7 @@ Unmatched `/cmd` falls through to the model (so Claude Code's native
 
 Trigger:
   - Inbound message has a <channel source="plugin:discord:discord" ...> tag
-  - The tag's user_id matches MAT_OWNER_DISCORD_USER_ID (env or owner_id file)
+  - The tag's user_id matches CCDK_OWNER_DISCORD_USER_ID (env or owner_id file)
   - Body (after the tag) starts with `!` OR `/<known-cmd>`
 
 Safety:
@@ -36,7 +36,7 @@ Output:
   - Exit code shown only when nonzero
   - Stdout and stderr are merged
 
-Logs: ~/.local/state/cc-discord-kit/passthrough.log (override with MAT_PASSTHROUGH_LOG)
+Logs: ~/.local/state/cc-discord-kit/passthrough.log (override with CCDK_PASSTHROUGH_LOG)
 """
 
 from __future__ import annotations
@@ -60,20 +60,20 @@ from pathlib import Path
 # running bot picks up changes without restart.
 #
 # Resolution order:
-#   1. MAT_OWNER_DISCORD_USER_ID env var (preferred — works everywhere)
+#   1. CCDK_OWNER_DISCORD_USER_ID env var (preferred — works everywhere)
 #   2. ~/.config/cc-discord-kit/owner_id file (single line, just the user_id)
 #
 # Fails closed when neither is set — any other behavior would let arbitrary
 # Discord users run shell on the host.
 OWNER_ID_FILE = Path(
-    os.environ.get("MAT_OWNER_ID_FILE")
+    os.environ.get("CCDK_OWNER_ID_FILE")
     or Path.home() / ".config" / "cc-discord-kit" / "owner_id"
 )
 
 
 def get_owner_id() -> str:
     """Return the configured owner Discord user_id, or empty string if unset."""
-    env = os.environ.get("MAT_OWNER_DISCORD_USER_ID", "").strip()
+    env = os.environ.get("CCDK_OWNER_DISCORD_USER_ID", "").strip()
     if env:
         return env
     try:
@@ -89,17 +89,17 @@ MAX_TIMEOUT_S = 600
 INLINE_LIMIT = 1900  # Discord hard cap is 2000; reserve for code fence + cmd echo
 ATTACHMENT_LIMIT = 8 * 1024 * 1024  # Discord default upload cap is 8MB for non-Nitro
 
-# Log location — override with MAT_PASSTHROUGH_LOG env var.
+# Log location — override with CCDK_PASSTHROUGH_LOG env var.
 LOG_PATH = Path(
-    os.environ.get("MAT_PASSTHROUGH_LOG")
+    os.environ.get("CCDK_PASSTHROUGH_LOG")
     or Path.home() / ".local" / "state" / "cc-discord-kit" / "passthrough.log"
 )
 
 # Directory scanned for user-defined slash commands. Filename (minus .sh/.py)
 # becomes the command name. `.sh` runs under `bash -lc`, `.py` under `python3`.
-# Override with MAT_COMMANDS_DIR env var (defaults to ./commands next to repo root).
+# Override with CCDK_COMMANDS_DIR env var (defaults to ./commands next to repo root).
 COMMANDS_DIR = Path(
-    os.environ.get("MAT_COMMANDS_DIR")
+    os.environ.get("CCDK_COMMANDS_DIR")
     or Path(__file__).resolve().parent.parent / "commands"
 )
 
@@ -107,7 +107,7 @@ COMMANDS_DIR = Path(
 # so we stash the post-command pwd here and read it back on the next call.
 # Reset with `!cd` (no args) or `!cd ~`.
 CWD_STATE_FILE = Path(
-    os.environ.get("MAT_CWD_STATE_FILE")
+    os.environ.get("CCDK_CWD_STATE_FILE")
     or Path.home() / ".cache" / "cc-discord-kit" / "passthrough_cwd"
 )
 
@@ -234,7 +234,7 @@ def parse_passthrough(prompt: str) -> dict | None:
     owner_id = get_owner_id()
     if not owner_id:
         # Fail closed — neither env var nor owner_id file is set.
-        log("owner_id not configured (env MAT_OWNER_DISCORD_USER_ID or ~/.config/cc-discord-kit/owner_id) — refusing")
+        log("owner_id not configured (env CCDK_OWNER_DISCORD_USER_ID or ~/.config/cc-discord-kit/owner_id) — refusing")
         return None
     if user_id != owner_id:
         return None
@@ -456,7 +456,7 @@ def run_command(cmd: str, timeout_s: int) -> tuple[str, int, bool]:
     """
     start_cwd = _read_persisted_cwd()
     home = str(Path.home())
-    sentinel = "__MAT_PASSTHROUGH_CWD__"
+    sentinel = "__CCDK_PASSTHROUGH_CWD__"
     wrapped = f"{cmd}\n_mat_rc=$?\nprintf '\\n%s%s\\n' '{sentinel}' \"$(pwd)\"\nexit $_mat_rc"
 
     try:

@@ -21,9 +21,9 @@ Exit 0 always — never block the turn.
 Configuration:
   Roster: ~/.config/cc-discord-kit/discord_roster.json
           { "<user_id>": "<display name>", ... }
-          Override path with MAT_DISCORD_ROSTER.
+          Override path with CCDK_DISCORD_ROSTER.
 
-  Own ID: MAT_BOT_DISCORD_USER_ID  (the running agent's own Discord user_id)
+  Own ID: CCDK_BOT_DISCORD_USER_ID  (the running agent's own Discord user_id)
           Falls back to CCDK_BOT env / hostname-derived self name if unset.
 """
 
@@ -37,7 +37,7 @@ from pathlib import Path
 
 
 def _roster_path() -> Path:
-    explicit = os.environ.get("MAT_DISCORD_ROSTER", "").strip()
+    explicit = os.environ.get("CCDK_DISCORD_ROSTER", "").strip()
     if explicit:
         return Path(explicit).expanduser()
     return Path("~/.config/cc-discord-kit/discord_roster.json").expanduser()
@@ -58,7 +58,7 @@ def _load_roster() -> dict[str, str]:
 
 def _own_id() -> str:
     """The Discord user_id of the agent running this hook (best-effort)."""
-    explicit = os.environ.get("MAT_BOT_DISCORD_USER_ID", "").strip()
+    explicit = os.environ.get("CCDK_BOT_DISCORD_USER_ID", "").strip()
     if explicit:
         return explicit
     return ""  # unknown — self-mention check will silently skip

@@ -32,7 +32,7 @@ Module reuses parsers from react_hook.py — same file watches for the same
 Discord tags, so any parsing change there propagates here automatically.
 
 Env vars:
-  MAT_ECHO_GUARD_LOG  override log path
+  CCDK_ECHO_GUARD_LOG  override log path
                       default ~/.local/state/cc-discord-kit/discord_echo_guard.log
 """
 
@@ -53,7 +53,7 @@ from react_hook import (  # type: ignore[import-not-found]
 
 
 def _log_path() -> str:
-    explicit = os.environ.get("MAT_ECHO_GUARD_LOG")
+    explicit = os.environ.get("CCDK_ECHO_GUARD_LOG")
     if explicit:
         return explicit
     state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")

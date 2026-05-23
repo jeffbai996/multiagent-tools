@@ -61,10 +61,10 @@ All env vars optional unless noted.
 | `GEMINI_API_KEY` | `digest.py` | enables the optional auto-summarize button on the digest page. |
 | `VECGREP_URL` | `vecgrep_client.py` | optional vecgrep endpoint for semantic search. Default `http://127.0.0.1:8765`. |
 | `VECGREP_CORPUS_MEMORIES` / `VECGREP_CORPUS_JOURNAL` | `vecgrep_client.py` | optional corpus names. Default `cc-discord-kit`. |
-| `MAT_OWNER_DISCORD_USER_ID` | `hooks/discord_passthrough.py` | the Discord `user_id` allowed to run `!cmd` and `/cmd` pass-through. Required for the hook to activate (fails closed). Alternatively place the same value in `~/.config/cc-discord-kit/owner_id`. |
-| `MAT_OWNER_ID_FILE` | `hooks/discord_passthrough.py` | override the owner_id file path. Default `~/.config/cc-discord-kit/owner_id`. |
-| `MAT_COMMANDS_DIR` | `hooks/discord_passthrough.py` | where to find `/cmd` registry scripts. Default `<repo>/commands/`. |
-| `MAT_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/cc-discord-kit/passthrough.log`. |
+| `CCDK_OWNER_DISCORD_USER_ID` | `hooks/discord_passthrough.py` | the Discord `user_id` allowed to run `!cmd` and `/cmd` pass-through. Required for the hook to activate (fails closed). Alternatively place the same value in `~/.config/cc-discord-kit/owner_id`. |
+| `CCDK_OWNER_ID_FILE` | `hooks/discord_passthrough.py` | override the owner_id file path. Default `~/.config/cc-discord-kit/owner_id`. |
+| `CCDK_COMMANDS_DIR` | `hooks/discord_passthrough.py` | where to find `/cmd` registry scripts. Default `<repo>/commands/`. |
+| `CCDK_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/cc-discord-kit/passthrough.log`. |
 
 The env file at `~/.config/cc-discord-kit/env` is checked as a fallback for any of the above. Shell-style:
 
@@ -165,7 +165,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
 ### Discord pass-through + slash dispatch
 
-- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `MAT_OWNER_DISCORD_USER_ID` or `~/.config/cc-discord-kit/owner_id`.
+- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `CCDK_OWNER_DISCORD_USER_ID` or `~/.config/cc-discord-kit/owner_id`.
 
 ### Voice surfacing — narrate + tool-watcher
 
@@ -218,7 +218,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
 - **`scrub_tags.py`** (PreToolUse) — mutator on `mcp__plugin_discord_discord__reply`. Strips `[MEMORY:...]`, `[MEMORY_EDIT:…]`, `[MEMORY_DELETE:…]`, `[JOURNAL:…]`, `[JOURNAL_DELETE:…]` tags from outbound `text` so they don't leak visibly into Discord. Stop hook still captures the tags from the transcript.
 
-- **`discord_mention_resolver.py`** (UserPromptSubmit) — resolves `<@USER_ID>` mentions in inbound Discord messages to human-readable names. Roster loaded from `~/.config/cc-discord-kit/discord_roster.json` (or `MAT_DISCORD_ROSTER`). The running agent's own ID comes from `MAT_BOT_DISCORD_USER_ID`. Injects a `Discord mentions resolved:` block; adds an explicit warning when this agent was addressed.
+- **`discord_mention_resolver.py`** (UserPromptSubmit) — resolves `<@USER_ID>` mentions in inbound Discord messages to human-readable names. Roster loaded from `~/.config/cc-discord-kit/discord_roster.json` (or `CCDK_DISCORD_ROSTER`). The running agent's own ID comes from `CCDK_BOT_DISCORD_USER_ID`. Injects a `Discord mentions resolved:` block; adds an explicit warning when this agent was addressed.
 
 ### Lifecycle + system
 
@@ -231,17 +231,17 @@ All log + state paths default under `~/.local/state/cc-discord-kit/`. Override i
 
 | Var | Hook | What |
 |---|---|---|
-| `MAT_REACT_HOOK_LOG` / `MAT_REACT_HOOK_STATE` | react_hook | log + state paths |
-| `MAT_NARRATE_LOG` / `MAT_NARRATE_STATE` | narrate | log + state paths |
-| `MAT_TOOL_WATCHER_LOG` | tool_watcher | log path |
-| `MAT_ECHO_GUARD_LOG` | discord_echo_guard | log path |
-| `MAT_PAGINATE_GUARD_LOG` / `MAT_PAGINATE_GUARD_LIMIT` | paginate_guard | log path + char limit (default 1900) |
-| `MAT_SCRUB_TAGS_LOG` | scrub_tags | log path |
-| `MAT_NOTIFY_HOOK_LOG` | notify_hook | log path |
-| `MAT_STOP_HOOK_LOG` | react_hook (memorized mode) | stop-hook log path to scan for 💾 trigger |
-| `MAT_REACT_HOOK_BIN` | notify_hook | path to react_hook entrypoint for `--mode notified` |
-| `MAT_DISCORD_ROSTER` | discord_mention_resolver | path to user_id → name JSON |
-| `MAT_BOT_DISCORD_USER_ID` | discord_mention_resolver | running agent's own Discord user_id |
+| `CCDK_REACT_HOOK_LOG` / `CCDK_REACT_HOOK_STATE` | react_hook | log + state paths |
+| `CCDK_NARRATE_LOG` / `CCDK_NARRATE_STATE` | narrate | log + state paths |
+| `CCDK_TOOL_WATCHER_LOG` | tool_watcher | log path |
+| `CCDK_ECHO_GUARD_LOG` | discord_echo_guard | log path |
+| `CCDK_PAGINATE_GUARD_LOG` / `CCDK_PAGINATE_GUARD_LIMIT` | paginate_guard | log path + char limit (default 1900) |
+| `CCDK_SCRUB_TAGS_LOG` | scrub_tags | log path |
+| `CCDK_NOTIFY_HOOK_LOG` | notify_hook | log path |
+| `CCDK_STOP_HOOK_LOG` | react_hook (memorized mode) | stop-hook log path to scan for 💾 trigger |
+| `CCDK_REACT_HOOK_BIN` | notify_hook | path to react_hook entrypoint for `--mode notified` |
+| `CCDK_DISCORD_ROSTER` | discord_mention_resolver | path to user_id → name JSON |
+| `CCDK_BOT_DISCORD_USER_ID` | discord_mention_resolver | running agent's own Discord user_id |
 | `DISCORD_STATE_DIR` | several | per-agent Discord plugin state dir override |
 
 ### Legacy save-intent gate

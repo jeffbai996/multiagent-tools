@@ -30,7 +30,7 @@ Pass-through cases (hook returns 0 with no mutation):
   - Hook input is malformed (never block on parse errors)
 
 Env vars:
-  MAT_SCRUB_TAGS_LOG  override log path
+  CCDK_SCRUB_TAGS_LOG  override log path
                       default ~/.local/state/cc-discord-kit/scrub_tags.log
 """
 
@@ -55,7 +55,7 @@ TAG_PATTERNS = [
 
 
 def _log_path() -> str:
-    explicit = os.environ.get("MAT_SCRUB_TAGS_LOG")
+    explicit = os.environ.get("CCDK_SCRUB_TAGS_LOG")
     if explicit:
         return explicit
     state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")

@@ -39,7 +39,7 @@ def _make_prompt(body: str, user_id: str = OWNER) -> str:
 @pytest.fixture(autouse=True)
 def _force_owner(monkeypatch):
     """Ensure tests run with a known owner_id regardless of host env."""
-    monkeypatch.setenv("MAT_OWNER_DISCORD_USER_ID", OWNER)
+    monkeypatch.setenv("CCDK_OWNER_DISCORD_USER_ID", OWNER)
     yield
 
 
@@ -140,14 +140,14 @@ def test_no_channel_tag_returns_none():
 
 def test_unconfigured_owner_fails_closed(monkeypatch, tmp_path):
     """With no env var and no owner_id file, parse must return None."""
-    monkeypatch.delenv("MAT_OWNER_DISCORD_USER_ID", raising=False)
+    monkeypatch.delenv("CCDK_OWNER_DISCORD_USER_ID", raising=False)
     monkeypatch.setattr(dp, "OWNER_ID_FILE", tmp_path / "nonexistent")
     assert dp.parse_passthrough(_make_prompt("!ls")) is None
 
 
 def test_file_fallback_works_when_env_unset(monkeypatch, tmp_path):
     """When env is empty, the owner_id file should satisfy the gate."""
-    monkeypatch.delenv("MAT_OWNER_DISCORD_USER_ID", raising=False)
+    monkeypatch.delenv("CCDK_OWNER_DISCORD_USER_ID", raising=False)
     f = tmp_path / "owner_id"
     f.write_text(OWNER + "\n")
     monkeypatch.setattr(dp, "OWNER_ID_FILE", f)
@@ -354,7 +354,7 @@ def test_run_command_sentinel_stripped_from_output(tmp_path, monkeypatch):
     monkeypatch.setattr(dp, "CWD_STATE_FILE", tmp_path / "cwd")
     out, code, _ = dp.run_command("echo hello", 5)
     assert "hello" in out
-    assert "__MAT_PASSTHROUGH_CWD__" not in out
+    assert "__CCDK_PASSTHROUGH_CWD__" not in out
 
 
 def test_format_inline_shows_cwd_when_not_home(tmp_path, monkeypatch):

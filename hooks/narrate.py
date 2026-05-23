@@ -37,9 +37,9 @@ We reuse parsers from react_hook.py — same file watches the same
 transcript so the two hooks stay in lockstep.
 
 Env vars:
-  MAT_NARRATE_STATE  override state path
+  CCDK_NARRATE_STATE  override state path
                      (default ~/.local/state/cc-discord-kit/narrate_state.json)
-  MAT_NARRATE_LOG    override log path
+  CCDK_NARRATE_LOG    override log path
                      (default ~/.local/state/cc-discord-kit/narrate.log)
 """
 
@@ -98,10 +98,10 @@ try:
 except OSError:
     pass
 STATE_PATH = os.environ.get(
-    "MAT_NARRATE_STATE", os.path.join(STATE_DIR, "narrate_state.json")
+    "CCDK_NARRATE_STATE", os.path.join(STATE_DIR, "narrate_state.json")
 )
 LOG_PATH = os.environ.get(
-    "MAT_NARRATE_LOG", os.path.join(STATE_DIR, "narrate.log")
+    "CCDK_NARRATE_LOG", os.path.join(STATE_DIR, "narrate.log")
 )
 
 

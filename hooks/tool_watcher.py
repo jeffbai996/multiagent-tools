@@ -68,7 +68,7 @@ try:
 except OSError:
     pass
 LOG_PATH = os.environ.get(
-    "MAT_TOOL_WATCHER_LOG", os.path.join(_STATE_DIR, "tool_watcher.log")
+    "CCDK_TOOL_WATCHER_LOG", os.path.join(_STATE_DIR, "tool_watcher.log")
 )
 
 

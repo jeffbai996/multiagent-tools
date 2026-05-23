@@ -47,5 +47,5 @@ Code slash commands (`/loop`, `/schedule`, `/compact`, etc.).
 ## Where this directory lives
 
 By default the hook looks for commands at `<repo-root>/commands/`. Override
-with the `MAT_COMMANDS_DIR` environment variable if you keep your scripts
+with the `CCDK_COMMANDS_DIR` environment variable if you keep your scripts
 elsewhere.

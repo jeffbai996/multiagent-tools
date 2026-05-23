@@ -166,12 +166,24 @@ def fetch_window(hours: int = DEFAULT_HOURS) -> list[Message]:
             # One channel failing shouldn't blank the whole page — skip it.
             return channel_name, channel_id, None
 
+    # Drop narrate placeholders (🧠) and tool-trace messages (🔧) before
+    # they reach the review pane or the Gemini summarize prompt. Both are
+    # bot-internal surfacing with no review value and pollute the LLM
+    # digest paragraph. Matches the same predicate used by md-shadow
+    # generation in transcripts.py-style consumers.
+    def _is_narrate_or_tool(content: str) -> bool:
+        c = (content or "").lstrip()
+        return c.startswith("🧠 ") or c.startswith("🔧 ")
+
     msgs: list[Message] = []
     with ThreadPoolExecutor(max_workers=max(1, len(DIGEST_CHANNELS))) as ex:
         for channel_name, channel_id, raw in ex.map(_fetch_one, DIGEST_CHANNELS.items()):
             if raw is None:
                 continue
             for m in raw:
+                content = m.get("content", "") or ""
+                if _is_narrate_or_tool(content):
+                    continue
                 author = m.get("author", {}) or {}
                 msgs.append({
                     "channel": channel_name,
@@ -180,7 +192,7 @@ def fetch_window(hours: int = DEFAULT_HOURS) -> list[Message]:
                     "author": author.get("username", "?"),
                     "author_id": author.get("id", ""),
                     "is_bot": bool(author.get("bot", False)),
-                    "content": m.get("content", "") or "",
+                    "content": content,
                     "ts": m.get("timestamp", ""),
                 })
 

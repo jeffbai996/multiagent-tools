@@ -11,7 +11,7 @@ parameter instead. This hook enforces it at the harness level.
 Activates only on `mcp__plugin_discord_discord__reply` calls.
 
 Block conditions (BOTH must be true):
-  1. `len(text) > MAT_PAGINATE_GUARD_LIMIT` (default 1900 — leaves headroom
+  1. `len(text) > CCDK_PAGINATE_GUARD_LIMIT` (default 1900 — leaves headroom
      below Discord's 2000-char hard cap)
   2. text contains >= 2 fenced ``` markers (i.e. a code block exists)
 
@@ -28,8 +28,8 @@ Pass-through cases (hook returns 0):
   - Hook input is malformed (we never want to block on parse errors)
 
 Env vars:
-  MAT_PAGINATE_GUARD_LIMIT  override the 1900-char threshold (must be int)
-  MAT_PAGINATE_GUARD_LOG    override the log path
+  CCDK_PAGINATE_GUARD_LIMIT  override the 1900-char threshold (must be int)
+  CCDK_PAGINATE_GUARD_LOG    override the log path
                             default ~/.local/state/cc-discord-kit/paginate_guard.log
 """
 
@@ -43,7 +43,7 @@ DISCORD_REPLY_TOOL = "mcp__plugin_discord_discord__reply"
 
 
 def _max_inline_chars() -> int:
-    raw = os.environ.get("MAT_PAGINATE_GUARD_LIMIT", "").strip()
+    raw = os.environ.get("CCDK_PAGINATE_GUARD_LIMIT", "").strip()
     if raw:
         try:
             value = int(raw)
@@ -55,7 +55,7 @@ def _max_inline_chars() -> int:
 
 
 def _log_path() -> str:
-    explicit = os.environ.get("MAT_PAGINATE_GUARD_LOG")
+    explicit = os.environ.get("CCDK_PAGINATE_GUARD_LOG")
     if explicit:
         return explicit
     state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")
