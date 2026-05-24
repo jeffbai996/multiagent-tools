@@ -1,38 +1,58 @@
 # cc-discord-kit
 
-A self-hosted shared brain for multi-agent setups: durable memory, journal, persona files, channel digest, and live infrastructure inventory across N hosts. Backing store is plain JSON. UI is a Flask web app with a `⌘K` command palette. Designed to be poked at over the local network or a private tunnel (e.g. tailscale), never the public internet.
+**Give your Claude Code agents a shared memory — and watch them work from Discord.**
 
-## Why this is shaped the way it is
+Two things in one kit:
 
-Several agent processes — Claude Code instances, scripts, humans-in-the-loop — need to share a notebook and be legible to an operator who isn't watching a terminal. This kit answers both halves.
+1. **Shared context** — a memory + journal + persona store that any number of Claude Code agents (across any number of machines) read and write through one CLI. Plain JSON, auditable by hand.
+2. **Claude Code → Discord** — a set of hooks that surface a running Claude Code session into a Discord channel: its narration, its tool calls, its turn status — and let you fire commands back at the host from your phone.
 
-**A shared brain, not a database.** The core is a JSON-backed store of two record types: durable *memories* (facts, capped at 200) and a *journal* of pinned moments (capped at 1000), plus per-agent *persona* files. Every agent reads and writes it through one CLI — locally on a shared filesystem, or over HTTP against the Flask server when it's remote. Optional semantic search is delegated to an external vecgrep service over HTTP; the kit ships no embedding model of its own. Plain JSON and last-writer-wins are the point: the store is auditable by hand and survives any process dying mid-write.
+So you can step away from the terminal and still see what your agent is doing, what it remembered, and nudge it — all from Discord. Runs on your own box, over LAN or a private tunnel (tailscale). Never the public internet.
 
-**Three observability lanes** make an agent's turn legible from a phone, without tailing logs. Each is an independent Claude Code hook, opt-in per agent and per channel:
-- **narration** (`narrate.py`) — the agent's between-tool prose, posted live as a `🧠` blockquote and either collapsed away or kept above the final reply.
-- **tool-trace** (`tool_watcher.py`) — the tool calls themselves, from a one-line ticker up to full diffs and stripped command output.
-- **emoji-state** (`react_hook.py`) — a single reaction on the triggering message tracking turn lifecycle: `👀` received, `🤔/🔧/🌐/🤖` working (thinking / editing / researching / delegating to a sub-agent), `✅` replied, `🖥️` ended in terminal only, `💾` wrote to memory, `📝` compacted, `❌` errored, `🔀` cross-channel leak, `🔔` system notification.
+---
 
-**Discord is the default substrate, not a hard dependency.** The store, CLI, server, and inventory layers are transport-agnostic — they don't know Discord exists. The observability and echo hooks, however, are Discord-native: reactions, `>>>` blockquotes, and the 2000-character pagination guard are written against Discord's REST semantics. Swapping substrates means reimplementing that hook layer against the new surface; the brain underneath ports unchanged.
+## The two halves
 
-**The control path is read-only.** `notify_hook.py` mirrors Claude Code permission and elicitation prompts to Discord — including the option list for an `AskUserQuestion` — so the operator sees *what's being asked* from anywhere. There is no write-back: you still answer in the terminal. Mid-flight steering and remote interrupt are not built.
+### 1. Shared context store
+A JSON-backed store of **memories** (durable facts, cap 200), a **journal** (pinned moments, cap 1000), and per-agent **persona** files. Every agent uses it through one CLI — directly on a shared filesystem, or over HTTP against the bundled Flask server when the agent's on another machine. Optional semantic search hooks out to an external [vecgrep](#) service (no embedding model ships here). Last-writer-wins + plain JSON is deliberate: you can read and fix the store with a text editor, and a process dying mid-write can't corrupt it.
 
-The Claude Code hooks were ported from a sibling repo, `cc-context`; the memory/store/server layer originated here.
+### 2. Claude Code, surfaced into Discord
+Three independent hooks make a Claude Code turn **legible from a phone** — opt in per agent, per channel:
 
-Originally built to coordinate several Claude Code agents talking through Discord; the architecture works for any setup where multiple agent processes (LLMs, scripts, humans-in-the-loop) need a shared notebook.
+| Hook | What it surfaces |
+| --- | --- |
+| **narration** (`narrate.py`) | the agent's between-tool prose, live as a `🧠` blockquote |
+| **tool-trace** (`tool_watcher.py`) | the actual tool calls — one-line ticker → full diffs → command output |
+| **emoji-state** (`react_hook.py`) | one reaction on your message tracking the turn: `👀` got it → `🔧` working → `✅` done |
+
+Plus a **command path back**: `discord_passthrough.py` lets you type `!ls` or a registered `/deploy` in Discord and have it run on the host, reply inline, and never cost a token. (Permission prompts are mirrored read-only — you still approve in the terminal.)
+
+See [Tool-trace, by example](#tool-trace-by-example) below for what these actually look like in a channel.
+
+---
+
+**Discord isn't load-bearing for the store.** The store/CLI/server/inventory layers don't know Discord exists — they're transport-agnostic. Only the observability + command hooks are Discord-native (reactions, `>>>` blockquotes, the 2000-char pagination guard). Swap substrates → reimplement the hook layer; the store underneath is unchanged.
+
+The store/server layer originated here; the Claude Code hooks were developed alongside it and genericized for this kit.
 
 ## What's in here
 
-- `store.py` — JSON-backed memory + journal store (Python lib). Memories are durable facts (cap 200), journal entries are pinned moments (cap 1000). Atomic writes, last-writer-wins.
-- `cli.py` — local CLI: `cc-discord-kit memory list|show|add|edit|delete|search` and same for `journal`/`persona`.
-- `client.py` — HTTP-mode CLI: same commands, but talks to the Flask server when `CCDK_URL` is set. Lets agents on remote hosts use the store transparently.
-- `server.py` — Flask web UI + JSON API on `127.0.0.1:<port>`. ⌘K palette; per-page editors; markdown rendering; optional vecgrep semantic search; pinning, trash, edit history, merge.
-- `personas.py` — registry of "where each agent keeps its persona files." Loaded from `~/.config/cc-discord-kit/agents.yaml` (see `agents.example.yaml`). Files in a configured git repo auto-commit on save.
-- `digest.py` — pulls recent Discord channel history for human review (no LLM, no cron). Optional `/digest/summarize` endpoint hits Gemini if `GEMINI_API_KEY` is set.
-- `inventory.py` — live read of hooks (`settings.json`), crontab, systemd user units, launchd agents across each configured host. Cached 30s. Source of truth stays in canonical files; this module never writes.
-- `discord_handler.py` — Discord slash-command bot exposing `/mem` and `/journal`. Optional.
-- `hooks/` — Claude Code hooks for context injection and pre-compaction journal snapshots. `stop_hook.py` still contains the legacy tag parser, but explicit CLI saves are the recommended write path.
-- `hooks/discord_passthrough.py` — `UserPromptSubmit` hook that intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, and blocks the prompt from reaching Claude (zero token spend). See `commands/README.md` for the dispatch contract.
+**The store** (Discord-agnostic — works on its own)
+- `store.py` — the JSON memory + journal store. Atomic writes, last-writer-wins.
+- `cli.py` — local CLI: `memory`/`journal`/`persona` × `list|show|add|edit|delete|search`.
+- `client.py` — same CLI, but over HTTP to the server (set `CCDK_URL`) so remote agents use it transparently.
+- `server.py` — Flask web UI + JSON API. ⌘K palette, editors, markdown, pinning/trash/history/merge, optional semantic search.
+- `personas.py` — where each agent keeps its persona files (configured in `agents.yaml`); auto-commits if they live in a git repo.
+
+**The Discord layer**
+- `hooks/narrate.py`, `hooks/tool_watcher.py`, `hooks/react_hook.py` — the three observability lanes (narration / tool-trace / emoji-state).
+- `hooks/discord_passthrough.py` — run `!cmd` / `/cmd` from Discord on the host, reply inline, zero token spend. See `commands/README.md`.
+- `hooks/notify_hook.py` — mirror Claude Code permission prompts to Discord (read-only).
+- `discord_handler.py` — optional `/mem` + `/journal` slash-command bot.
+
+**Ops**
+- `inventory.py` — live read of hooks, crontab, systemd units, launchd agents across hosts (cached 30s, never writes).
+- `digest.py` — pull recent channel history for review; optional Gemini summarize.
 
 ## Install
 
@@ -211,6 +231,45 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
   - **`collapse`** — same as `diffs` while live (ticker + diffs + summaries), then the whole tool message is deleted at Stop. Symmetric with narrate's `collapse` — pair them for full visibility during the turn, clean channel after.
   - **`full`** — diffs + ` ``` ` fenced Bash stdout (secret-stripped).
   - **`off`** — disabled (default).
+
+<a name="tool-trace-by-example"></a>
+#### Tool-trace, by example
+
+What actually shows up in the channel as the agent works. Everything renders inside a ` ```diff ` fence so the `+`/`-` coloring works on desktop *and* mobile.
+
+**`ticker`** — one line per tool call, headers only:
+
+```diff
++ ● Read(src/server.py)
++ ● Edit(src/server.py)
++ ● Bash(npm test)
+- ● Bash(npm run deploy) FAILED
+```
+
+**`diffs`** — same headers, plus a grey summary line and the actual edit diff:
+
+```diff
++ ● Edit(src/config.py)
+  ⎿ [+3, -1]
+- DEBUG = True
++ DEBUG = False
++ LOG_LEVEL = "info"
++ TIMEOUT = 30
++ ● Read(README.md)
+  ⎿ [127 lines]
+```
+
+The `●` dot marks a **tool invocation**; bare `+`/`-` lines (no dot) are the **file diff** itself — so a green `+ DEBUG` edit line never gets confused with the green `+ ●` header above it. `collapse` renders identically while the turn runs, then deletes the whole block at Stop for a clean channel.
+
+**`full`** adds the command's stdout below the header (secrets stripped):
+
+```diff
++ ● Bash(git status)
+```
+```
+On branch main
+nothing to commit, working tree clean
+```
 
 ### Discord echo + guardrails
 
