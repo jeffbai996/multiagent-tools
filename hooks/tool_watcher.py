@@ -8,15 +8,16 @@ prose + tool traces live as one cohesive segment per reply boundary.
 
 Modes:
   off      — no surfacing (default; this script exits 0)
-  collapse — same as ticker while live, but the entire tool message
-             gets deleted at Stop. Symmetric with narrate's 'collapse'
-             mode — pair them when you want a clean channel post-turn.
+  collapse — same as `diffs` while live (ticker + edit diffs), but the
+             entire tool message gets deleted at Stop. Symmetric with
+             narrate's 'collapse' mode — pair them when you want full
+             visibility during the turn and a clean channel afterwards.
   ticker   — one-line `! ToolName(short args)` per tool call (orange on
              ```diff highlighter; `- ...` for errored calls renders red).
              Cross-platform color: works on Discord desktop AND mobile.
              Persists past Stop.
-  diffs    — ticker + ```diff unified diff for Edit/Write/MultiEdit
-  full     — diffs + plain ```fenced Bash stdout, secret-stripped
+  diffs    — ticker + ```diff unified diff for Edit/Write/MultiEdit (kept)
+  full     — diffs + plain ```fenced Bash stdout, secret-stripped (kept)
 
 The hook input is the standard Claude Code PostToolUse payload:
   {
@@ -186,34 +187,50 @@ def _tool_message_content(tool_buffer: str, prefix: str = TOOL_PREFIX) -> str:
     """
     if not tool_buffer:
         return prefix
-    # Pad EVERY line uniformly. Discord's diff highlighter is
-    # forgiving: `  ! Bash(date)` still colorizes the `!` line as
-    # orange because the highlighter scans the first non-space char.
-    # If this turns out wrong (we lose color), revert to padding only
-    # lines that don't start with a colorizer.
-    padded = "\n".join(
-        (_TOOL_BLOCK_LEFT_PAD + ln) if ln else ln
-        for ln in tool_buffer.splitlines()
-    )
+    # Colorizer chars (+/-/!/@) must stay at column 0 for Discord's diff
+    # highlighter to fire. So we don't leading-pad those lines — but we
+    # DO ensure there's a single space between the marker and the
+    # content (so '+<p>' becomes '+ <p>'), which aligns colorized
+    # content at the same visual column as the 2-space-padded plain
+    # context lines below.
+    padded_lines: list[str] = []
+    for ln in tool_buffer.splitlines():
+        if not ln:
+            padded_lines.append(ln)
+            continue
+        first = ln[0]
+        if first in "+-!@":
+            # Ensure a space after the marker. If the next char is
+            # already a space, leave it; otherwise insert one.
+            if len(ln) > 1 and ln[1] != " ":
+                ln = ln[0] + " " + ln[1:]
+            padded_lines.append(ln)
+        else:
+            # Plain context line (typically Bash stdout already
+            # space-prefixed). Apply the 2-cell pad.
+            padded_lines.append(_TOOL_BLOCK_LEFT_PAD + ln)
+    padded = "\n".join(padded_lines)
     return prefix + "```diff\n" + padded + "\n```"
 
 
 def _ticker_line(tool_name: str, tool_input: dict, errored: bool = False) -> str:
-    """One-line ticker entry: diff-prefix + ToolName(short-args).
+    """One-line tool-invocation header: `+ ● ToolName(short-args)`.
 
-    Goes inside ```diff``` later. Discord's diff highlighter renders
-    a few colors based on the line's leading character:
-      `+` green  (new content — reserved for actual file diff lines)
-      `-` red    (removed content — reserved for failed tool calls
-                  and removed file diff lines)
-      `!` orange (warning marker — what we use for ordinary tool calls
-                  to keep them visually distinct from file-edit +
-                  green lines that ARE additions to source)
+    Goes inside a ```diff``` fence. Discord's diff highlighter colors a
+    whole line by its leading character. Empirically: `+` and `!` both
+    render GREEN, `-` renders RED.
+    Since `+`/`!` are indistinguishable, we use `+` for the header and rely
+    on the `●` dot as the marker that says "this is a tool invocation, not a
+    file-edit line." Edit lines stay bare `+`/`-` with NO dot, so:
 
-    Success (default): `! Bash(cmd)` → orange
-    Error: `- Bash(cmd) FAILED` → red
+      `+ ● Read(file)`   → green header, has the dot  (a tool ran)
+      `+     new code`   → green edit line, no dot     (a line was added)
+      `-     old code`   → red edit line, no dot       (a line was removed)
+
+    Errored calls render red and carry a FAILED tail:
+      `- ● Bash(cmd) FAILED`
     """
-    prefix = "- " if errored else "! "
+    prefix = "- ● " if errored else "+ ● "
     digest = _arg_digest(tool_name, tool_input)
     short_name = tool_name
     if short_name.startswith("mcp__"):
@@ -222,6 +239,49 @@ def _ticker_line(tool_name: str, tool_input: dict, errored: bool = False) -> str
             short_name = parts[-1]
     tail = " FAILED" if errored else ""
     return f"{prefix}{short_name}({digest}){tail}"
+
+
+def _diff_counts(before: str, after: str) -> tuple[int, int]:
+    """Count added / removed lines between before and after. Used for the
+    `⎿ [ +N,  -M ]` summary line above an edit's diff body."""
+    added = removed = 0
+    for ln in difflib.unified_diff(before.splitlines(), after.splitlines(), n=0, lineterm=""):
+        if ln.startswith("+") and not ln.startswith("+++"):
+            added += 1
+        elif ln.startswith("-") and not ln.startswith("---"):
+            removed += 1
+    return added, removed
+
+
+def _read_line_count(tool_response: dict) -> int | None:
+    """Best-effort line count for a Read tool result. The PostToolUse hook's
+    tool_response shape varies; try the common fields, fall back to None
+    (caller then shows no summary rather than a wrong number)."""
+    if not isinstance(tool_response, dict):
+        return None
+    # Common shapes: {"file": {"content": "..."}} or {"content": "..."} or
+    # a raw string under "output"/"stdout".
+    content = None
+    f = tool_response.get("file")
+    if isinstance(f, dict):
+        content = f.get("content")
+    if content is None:
+        content = tool_response.get("content") or tool_response.get("output") or tool_response.get("stdout")
+    if isinstance(content, str) and content:
+        return len(content.splitlines())
+    return None
+
+
+def _summary_line(text: str) -> str:
+    """A plain (grey) summary line under a tool header. Leading TWO spaces
+    keep it off column 0 so the diff highlighter leaves it uncolored, and
+    give the `⎿` connector a small indent under the header.
+
+    Format examples (tight brackets, no inner padding, per spec):
+      `  ⎿ [34 lines]`     (Read)
+      `  ⎿ [+4, -0]`       (Edit/Write/MultiEdit)
+    """
+    return f"  ⎿ {text}"
 
 
 def _is_textish_path(path: str) -> bool:
@@ -334,42 +394,66 @@ def _format_tool_block(
     errored = _detect_error(tool_response)
     ticker = _ticker_line(tool_name, tool_input, errored=errored)
 
-    # `collapse` renders the same ticker as `ticker` while live; the only
-    # difference is that handle_finalize (in narrate.py) deletes the
-    # whole tool message at Stop instead of preserving it.
-    if mode in ("ticker", "collapse"):
+    # `ticker` mode: just the one-line per-tool call.
+    if mode == "ticker":
         return ticker
 
-    # diffs and full both want diffs for text-file edits
+    # `collapse` and `diffs` both render ticker + diffs while live; the
+    # only difference is that handle_finalize (in narrate.py) deletes the
+    # whole tool message at Stop for `collapse`, while `diffs` keeps it.
+    # `full` adds Bash stdout on top.
     diff_body: str | None = None
-    if mode in ("diffs", "full") and tool_name in ("Edit", "Write", "MultiEdit"):
+    summary: str | None = None  # the `  ⎿ [ ... ]` grey line under the header
+    if mode in ("collapse", "diffs", "full") and tool_name in ("Edit", "Write", "MultiEdit"):
         path = tool_input.get("file_path") or ""
         if _is_textish_path(path):
             if tool_name == "Edit":
                 before = tool_input.get("old_string", "")
                 after = tool_input.get("new_string", "")
                 diff_body = _diff_block(before, after)
+                added, removed = _diff_counts(before, after)
+                summary = _summary_line(f"[+{added}, -{removed}]")
             elif tool_name == "Write":
                 # For Write we don't have a true "before" from the hook
                 # input — the tool_response sometimes carries it, but
                 # the safest reconstruction is just to show the new
                 # content as +'d lines (no - side).
                 after = tool_input.get("content", "")
+                n_added = len(after.splitlines())
                 diff_body = "\n".join(f"+{ln}" for ln in after.splitlines()[:30])
                 if after.count("\n") > 30:
                     diff_body += f"\n... ({after.count(chr(10)) - 30} more lines)"
+                summary = _summary_line(f"[+{n_added}, -0]")
             elif tool_name == "MultiEdit":
                 edits = tool_input.get("edits", []) or []
                 chunks: list[str] = []
+                tot_added = tot_removed = 0
                 for ed in edits[:5]:  # cap to first 5 edits
                     before = ed.get("old_string", "")
                     after = ed.get("new_string", "")
+                    a, r = _diff_counts(before, after)
+                    tot_added += a
+                    tot_removed += r
                     d = _diff_block(before, after, max_lines=15)
                     if d:
                         chunks.append(d)
+                # Count the edits beyond the 5-chunk display cap too.
+                for ed in edits[5:]:
+                    a, r = _diff_counts(ed.get("old_string", ""), ed.get("new_string", ""))
+                    tot_added += a
+                    tot_removed += r
                 if len(edits) > 5:
                     chunks.append(f"... ({len(edits) - 5} more edits)")
-                diff_body = "\n@@\n".join(chunks) or None
+                diff_body = "\n".join(chunks) or None
+                summary = _summary_line(f"[+{tot_added}, -{tot_removed}]")
+
+    # Read: no diff body, just a `  ⎿ [ N lines ]` summary so the user sees
+    # how much was read. Read isn't in the edit branch above, so handle here.
+    if mode in ("collapse", "diffs", "full") and tool_name == "Read":
+        path = tool_input.get("file_path") or ""
+        n = _read_line_count(tool_response)
+        if n is not None:
+            summary = _summary_line(f"[{n} lines]")
 
     bash_block: str | None = None
     if mode == "full" and tool_name == "Bash":
@@ -397,6 +481,8 @@ def _format_tool_block(
             bash_block = "\n".join(" " + ln for ln in safe.splitlines())
 
     parts = [ticker]
+    if summary is not None:
+        parts.append(summary)
     if diff_body is not None:
         # diff_body is already +/- prefixed lines — embed directly
         # (no nested fence; the outer ```diff` fence is the only one)

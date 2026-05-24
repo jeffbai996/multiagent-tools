@@ -206,9 +206,9 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
   { "<chat_id>": "off" | "collapse" | "ticker" | "diffs" | "full" }
   ```
 
-  - **`ticker`** — one-line `! ToolName(short args)` per call. Errored calls render as `- ...` (red). Cross-platform color via ` ```diff ` fence. Persists past Stop.
-  - **`collapse`** — same as ticker while live, deleted at Stop. Symmetric with narrate's `collapse`.
-  - **`diffs`** — ticker + ` ```diff ` unified diff for Edit/Write/MultiEdit.
+  - **`ticker`** — one-line header per call: `+ ● ToolName(short args)`. The `●` dot marks it as a tool invocation (vs a file-edit `+`/`-` line, which carry no dot). Errored calls render `- ● ToolName(...) FAILED` (red). Color is via a ` ```diff ` fence: Discord renders `+` lines green, `-` lines red — cross-platform. Persists past Stop.
+  - **`diffs`** — ticker + a ` ```diff ` unified diff for Edit/Write/MultiEdit, plus a grey summary line under the header: `  ⎿ [+N, -M]` (lines added/removed) for edits, `  ⎿ [N lines]` for Read.
+  - **`collapse`** — same as `diffs` while live (ticker + diffs + summaries), then the whole tool message is deleted at Stop. Symmetric with narrate's `collapse` — pair them for full visibility during the turn, clean channel after.
   - **`full`** — diffs + ` ``` ` fenced Bash stdout (secret-stripped).
   - **`off`** — disabled (default).
 

@@ -77,18 +77,50 @@ NARRATE_PREFIX_AUTO = "🧠 ***Narrating…***\n"
 NARRATE_PREFIX_ALWAYS = "🧠 **Narration**\n"
 
 
+_NBSP = " "  # non-breaking space — Discord preserves these at line start
+_LIST_RE = re.compile(r"^(\s*)([\-*+]|\d+\.)\s")
+_FENCE_SAFE = "`​`​`"  # ``` with zero-width spaces spliced between
+
+
 def _blockquote(text: str) -> str:
-    """Wrap text in Discord's multi-line blockquote (`>>>`).
+    """Wrap text in Discord's `>>>` blockquote: neutralize fences, indent lists.
 
-    Discord's `>>>` quote primitive applies to everything from that token
-    to end-of-message — no per-line `> ` prefix and no visible `>` glyph
-    on blank lines. The single-line `> ` primitive we tried first turned
-    blank-line separators into visible bare `>` characters, which made the
-    narration look like every paragraph break had a stray glyph.
+    SINGLE rendering boundary for narration — runs on the full concatenated
+    buffer (not per-segment), so it sees fences and lists exactly as Discord
+    will. Doing fence-neutralization here (rather than per text block in
+    _clean_narrate_text) is what fixes the "salad" leak: a ``` spanning two
+    watcher fires used to slip through because each half was neutralized
+    separately but the concatenation re-formed a raw run. On the whole buffer
+    there are no half-fences.
 
-    Strip trailing whitespace from the text so the quote block doesn't
-    end with empty lines that some clients render with extra padding."""
-    return ">>> " + text.rstrip()
+    Transforms, in order:
+
+    1. Neutralize ``` runs → `​`​` (zero-width spaces between backticks). A
+       real ``` inside `>>>` always wins and opens a fenced code block,
+       turning narration into a salad of quoted + unquoted fragments. The
+       ZWSP splice keeps the visual ``` at normal zoom but stops Discord's
+       fence regex from firing. Since all fences die here, there's no
+       in-code-fence state to track — everything downstream is prose.
+
+    2. Indent list lines. List rendering inside `>>>` is flat — "1. foo" /
+       "2. bar" sit flush with the quote bar as a wall of text. Discord
+       collapses leading ASCII spaces but preserves U+00A0, so prefix every
+       list line (-/*/+ bullets and N. numbers) with two NBSPs base indent
+       plus one NBSP per original leading-whitespace char (nesting depth).
+
+    3. Strip trailing whitespace so the block doesn't end on padded blanks.
+    """
+    text = text.replace("```", _FENCE_SAFE)
+    out_lines: list[str] = []
+    for raw in text.rstrip().splitlines():
+        m = _LIST_RE.match(raw)
+        if m:
+            leading_ws = m.group(1)
+            rest = raw[len(leading_ws):]
+            out_lines.append(_NBSP * 2 + (_NBSP * len(leading_ws)) + rest)
+            continue
+        out_lines.append(raw)
+    return ">>> " + "\n".join(out_lines)
 
 
 
