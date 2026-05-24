@@ -704,7 +704,18 @@ def _handle_finalize_locked(payload: dict, transcript_path: str) -> int:
     if not turn or turn.get("finalized"):
         return 0
     chat_id = turn.get("chat_id")
-    mode = turn.get("mode", "never")
+    # Resolve mode at finalize time from the CURRENT channel config, not the
+    # value snapshotted at turn-start. Otherwise a turn that began under
+    # `always` (or before the channel was switched to `collapse`) finalizes
+    # under the stale mode and the narration persists instead of collapsing —
+    # which is the "collapse doesn't work / channel gets clogged on long
+    # agentic turns" bug. The live channel config is the source of truth.
+    snapshot_mode = turn.get("mode", "never")
+    current_mode = channel_mode(chat_id) if chat_id else snapshot_mode
+    mode = current_mode
+    if snapshot_mode != current_mode:
+        log(f"mode changed mid-turn {snapshot_mode}->{current_mode} "
+            f"(turn {turn_key}); finalizing as {current_mode}")
 
     # Collect everything to finalize: the live segment + all sealed
     # segments from mid-turn rotations.

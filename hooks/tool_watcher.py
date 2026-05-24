@@ -418,9 +418,19 @@ def _format_tool_block(
                 # input — the tool_response sometimes carries it, but
                 # the safest reconstruction is just to show the new
                 # content as +'d lines (no - side).
+                #
+                # Truncate each line to the same width _diff_block uses.
+                # Without this, a long written line wraps on mobile and the
+                # continuation segment loses its leading `+` — so it renders
+                # uncolored and the diff looks half-broken.
                 after = tool_input.get("content", "")
                 n_added = len(after.splitlines())
-                diff_body = "\n".join(f"+{ln}" for ln in after.splitlines()[:30])
+                _w_lines: list[str] = []
+                for ln in after.splitlines()[:30]:
+                    if len(ln) > 87:
+                        ln = ln[:87] + "…"
+                    _w_lines.append(f"+{ln}")
+                diff_body = "\n".join(_w_lines)
                 if after.count("\n") > 30:
                     diff_body += f"\n... ({after.count(chr(10)) - 30} more lines)"
                 summary = _summary_line(f"[+{n_added}, -0]")
