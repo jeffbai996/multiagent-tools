@@ -10,10 +10,18 @@ Two prefix modes:
 
   !ls ~/repos              -> raw shell, run `ls ~/repos` via bash -lc
   !t=120 long-cmd          -> shell with 120s timeout (default 30s)
+  !                        -> open a live-terminal "screen" (a single pinned
+                              message PATCHed in place as commands run)
+  !exit  /  !q             -> close the live-terminal screen (stamps a goodbye)
   /help                    -> built-in: list registered commands
   /log [N]                 -> built-in: tail passthrough.log
   /status                  -> built-in: uptime + disk + load
   /<name> arg1 arg2        -> file-registry: runs <commands>/<name>.{sh,py}
+
+Live-terminal mode: a bare `!` opens a persistent pane for the channel; while
+open, each `!cmd` is rendered into that one message (rolling scrollback) instead
+of posting a new reply per command. `!exit` closes it. An idle pane (30 min)
+auto-expires back to one-shot mode. State: CCDK_SESSION_STATE_FILE.
 
 Unmatched `/cmd` falls through to the model (so Claude Code's native
 /loop, /schedule, /compact etc. still work normally).
@@ -48,6 +56,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import traceback
 import urllib.error
 import urllib.request
@@ -131,6 +140,120 @@ def _write_persisted_cwd(cwd: str) -> None:
         CWD_STATE_FILE.write_text(cwd + "\n")
     except OSError:
         pass
+
+
+# --- live-terminal session state ---------------------------------------------
+# A "session" turns the channel into a persistent terminal pane: one Discord
+# message (the screen) that we PATCH in place as commands run, instead of
+# posting a new message per command. State is keyed by chat_id so each channel
+# has its own pane. The cwd itself still lives in CWD_STATE_FILE (shared with
+# one-shot mode) — session state only tracks the screen message + scrollback.
+#
+# Open a pane with a bare `!`, close it with `!exit` / `!q`. While open, every
+# `!cmd` is rendered into the pane in place. Override the state path with
+# CCDK_SESSION_STATE_FILE.
+SESSION_STATE_FILE = Path(
+    os.environ.get("CCDK_SESSION_STATE_FILE")
+    or Path.home() / ".cache" / "cc-discord-kit" / "passthrough_term.json"
+)
+
+# How many rendered scrollback lines the pane keeps (rolling window).
+SCROLLBACK_LINES = 25
+
+# Idle TTL: a session left open this long without a command is considered dead.
+# The next `!cmd` then falls back to one-shot mode (and a fresh bare `!` opens a
+# new pane), instead of silently editing a screen scrolled out of view. 30 min.
+SESSION_TTL_SEC = 1800
+
+
+def _read_all_sessions() -> dict:
+    try:
+        if SESSION_STATE_FILE.is_file():
+            data = json.loads(SESSION_STATE_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _read_session(chat_id: str) -> dict | None:
+    """Return the active session dict for chat_id, or None if none/expired.
+
+    A session idle longer than SESSION_TTL_SEC is treated as dead: we clear it
+    and return None, so the caller falls back to one-shot mode rather than
+    editing a screen that's long scrolled out of view (the 'forgot !exit' case).
+    """
+    s = _read_all_sessions().get(str(chat_id))
+    if not (isinstance(s, dict) and s.get("screen_msg_id")):
+        return None
+    ts = s.get("ts", 0)
+    if time.time() - ts > SESSION_TTL_SEC:
+        _clear_session(chat_id)
+        log(f"SESSION expired (idle>{SESSION_TTL_SEC}s) chat={chat_id}")
+        return None
+    s.setdefault("scrollback", [])
+    return s
+
+
+def _write_session(chat_id: str, screen_msg_id: str, scrollback: list) -> None:
+    sessions = _read_all_sessions()
+    sessions[str(chat_id)] = {
+        "screen_msg_id": screen_msg_id,
+        "scrollback": list(scrollback),
+        "ts": time.time(),  # last-used stamp; drives the idle TTL
+    }
+    try:
+        SESSION_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_STATE_FILE.write_text(json.dumps(sessions))
+    except OSError:
+        pass
+
+
+def _clear_session(chat_id: str) -> None:
+    sessions = _read_all_sessions()
+    if str(chat_id) in sessions:
+        del sessions[str(chat_id)]
+        try:
+            SESSION_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SESSION_STATE_FILE.write_text(json.dumps(sessions))
+        except OSError:
+            pass
+
+
+def _append_scrollback(scrollback: list, cmd: str, output: str, exit_code: int,
+                       max_lines: int = SCROLLBACK_LINES) -> list:
+    """Append a command + its output to the scrollback, trimmed to max_lines.
+
+    Each command contributes a `$ cmd` echo line, the output lines, and an
+    `[exit N]` marker on non-zero exit. Returns a NEW trimmed list (newest at
+    the end); oldest lines fall off the top like a real terminal.
+    """
+    buf = list(scrollback)
+    buf.append(f"$ {cmd}")
+    for line in output.rstrip("\n").split("\n"):
+        buf.append(line)
+    if exit_code != 0:
+        buf.append(f"[exit {exit_code}]")
+    if len(buf) > max_lines:
+        buf = buf[-max_lines:]
+    return buf
+
+
+def _render_screen(scrollback: list) -> str:
+    """Render the scrollback as a fenced code-block screen, within Discord's
+    char cap. If the full buffer is too long, drop oldest lines until it fits."""
+    lines = list(scrollback)
+    while True:
+        body = "\n".join(lines) if lines else "(terminal ready — type !cmd)"
+        screen = f"```\n{body}\n```"
+        if len(screen) <= INLINE_LIMIT or len(lines) <= 1:
+            # If even a single line is over the cap, hard-truncate it.
+            if len(screen) > INLINE_LIMIT:
+                avail = INLINE_LIMIT - len("```\n\n```")
+                screen = f"```\n{body[:avail]}\n```"
+            return screen
+        lines = lines[1:]  # drop oldest, retry
 
 # Same tag pattern the other hooks use, but capture user_id too.
 CHANNEL_TAG_RE = re.compile(
@@ -248,8 +371,22 @@ def parse_passthrough(prompt: str) -> dict | None:
     # --- bang/bash mode ---
     if body.startswith("!"):
         body = body.lstrip("!").lstrip()
+
+        # Bare `!` (nothing after the bang) — open (or reset) a live-terminal
+        # pane: a single Discord message we PATCH in place as commands run.
         if not body:
-            return None
+            return {
+                "chat_id": chat_id, "msg_id": msg_id, "timeout_s": timeout,
+                "mode": "session_open",
+            }
+
+        # `!exit` / `!q` — close the live-terminal session (stamps a goodbye on
+        # the final screen).
+        if body.lower() in ("exit", "q"):
+            return {
+                "chat_id": chat_id, "msg_id": msg_id, "timeout_s": timeout,
+                "mode": "session_close",
+            }
 
         # Optional t=N prefix for timeout override (legacy syntax `!t=N cmd`).
         tmatch = re.match(r"^t=(\d+)\s+(.+)$", body, re.DOTALL)
@@ -591,6 +728,60 @@ def _discord_post_message(token: str, channel_id: str, content: str, reply_to: s
         return False
 
 
+def _discord_post_screen(token: str, channel_id: str, content: str) -> str | None:
+    """POST a message and return its message_id (needed so we can PATCH the
+    screen later). Returns None on failure. No reply_to — the screen stands on
+    its own."""
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+    payload = {"content": content, "allowed_mentions": {"parse": []}}
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, method="POST", data=body,
+        headers={
+            "Authorization": f"Bot {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "cc-discord-kit-passthrough/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if not (200 <= resp.status < 300):
+                return None
+            data = json.loads(resp.read())
+            mid = data.get("id")
+            return str(mid) if mid else None
+    except urllib.error.HTTPError as e:
+        log(f"post-screen HTTP {e.code} channel={channel_id}: {e.read()[:300]!r}")
+        return None
+    except Exception as e:
+        log(f"post-screen failed channel={channel_id}: {e}")
+        return None
+
+
+def _discord_patch_message(token: str, channel_id: str, message_id: str, content: str) -> bool:
+    """PATCH an existing message's content — the in-place screen update."""
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}"
+    payload = {"content": content, "allowed_mentions": {"parse": []}}
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, method="PATCH", data=body,
+        headers={
+            "Authorization": f"Bot {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "cc-discord-kit-passthrough/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        log(f"patch HTTP {e.code} channel={channel_id} msg={message_id}: {e.read()[:300]!r}")
+        return False
+    except Exception as e:
+        log(f"patch failed channel={channel_id} msg={message_id}: {e}")
+        return False
+
+
 def _discord_post_with_attachment(
     token: str,
     channel_id: str,
@@ -666,20 +857,80 @@ def main() -> int:
         log(f"no token at {state_dir}/.env; cannot reply, passing prompt through")
         return 0  # let the model handle it normally so the sender sees a response
 
+    if mode == "session_open":
+        # Open (or reset) the pane: post a fresh screen, reset cwd to $HOME,
+        # start an empty scrollback. The screen's message_id is what we PATCH.
+        _write_persisted_cwd(str(Path.home()))
+        screen = _render_screen([])
+        screen_id = _discord_post_screen(token, chat_id, screen)
+        if screen_id:
+            _write_session(chat_id, screen_id, [])
+            log(f"SESSION open chat={chat_id} screen={screen_id}")
+        else:
+            log(f"SESSION open FAILED chat={chat_id} (post-screen returned None)")
+        _emit_block("terminal session opened")
+        return 0
+
+    if mode == "session_close":
+        # Stamp a goodbye onto the screen pane before tearing the session down,
+        # so the final frame reads as a clean sign-off instead of freezing on
+        # the last command's output. Best-effort: if the PATCH fails we still
+        # close cleanly.
+        session = _read_session(chat_id)
+        if session:
+            farewell = list(session.get("scrollback", []))
+            farewell.append("")
+            farewell.append("Goodbye! 👋  [terminal session closed]")
+            try:
+                _discord_patch_message(
+                    token, chat_id, session["screen_msg_id"], _render_screen(farewell))
+            except Exception as e:
+                log(f"SESSION close goodbye-patch failed chat={chat_id}: {e}")
+        _clear_session(chat_id)
+        log(f"SESSION close chat={chat_id}")
+        _emit_block("terminal session closed")
+        return 0
+
+    # Is a live-terminal session open for this channel? If so, bash output is
+    # rendered into the pane (PATCH) rather than posted as a new message.
+    session = _read_session(chat_id) if mode == "bash" else None
+
     if mode == "bash":
         cmd = parsed["cmd"]
         # Denylist check (raw shell only — slash commands are gated by registration).
         deny_label = check_denylist(cmd)
         if deny_label:
             log(f"DENY chat={chat_id} cmd={cmd!r} reason={deny_label}")
-            msg = f"```\n$ {cmd}\n[blocked: {deny_label}]\n```"
-            _discord_post_message(token, chat_id, msg, reply_to=msg_id)
+            if session:
+                # Render the block into the pane, don't execute.
+                new_buf = _append_scrollback(
+                    session["scrollback"], cmd, f"[blocked: {deny_label}]", 0)
+                _discord_patch_message(
+                    token, chat_id, session["screen_msg_id"], _render_screen(new_buf))
+                _write_session(chat_id, session["screen_msg_id"], new_buf)
+            else:
+                msg = f"```\n$ {cmd}\n[blocked: {deny_label}]\n```"
+                _discord_post_message(token, chat_id, msg, reply_to=msg_id)
             _emit_block(f"pass-through denied: {deny_label}")
             return 0
         log(f"EXEC chat={chat_id} timeout={timeout_s} cmd={cmd!r}")
         output, exit_code, timed_out = run_command(cmd, timeout_s)
         log(f"DONE chat={chat_id} exit={exit_code} timed_out={timed_out} bytes={len(output)}")
         echo_line = cmd
+
+        # Session mode: update the pane in place and stop here.
+        if session:
+            new_buf = _append_scrollback(session["scrollback"], cmd, output, exit_code)
+            ok = _discord_patch_message(
+                token, chat_id, session["screen_msg_id"], _render_screen(new_buf))
+            if ok:
+                _write_session(chat_id, session["screen_msg_id"], new_buf)
+                _emit_block("terminal session updated")
+                return 0
+            # PATCH failed (e.g. screen message deleted) — drop the session and
+            # fall through to a normal one-shot post so output isn't lost.
+            log(f"SESSION patch failed chat={chat_id}; closing session, falling back to post")
+            _clear_session(chat_id)
     else:  # slash
         name = parsed["name"]
         args = parsed["args"]

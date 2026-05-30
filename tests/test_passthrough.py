@@ -75,9 +75,57 @@ def test_double_bang_strips_to_single():
     assert r["cmd"] == "whoami"
 
 
-def test_empty_bang_returns_none():
-    assert dp.parse_passthrough(_make_prompt("!")) is None
-    assert dp.parse_passthrough(_make_prompt("!   ")) is None
+def test_bare_bang_opens_terminal_session():
+    # A bare `!` (optionally with trailing space) opens the live-terminal pane.
+    for body in ("!", "!   "):
+        r = dp.parse_passthrough(_make_prompt(body))
+        assert r is not None, body
+        assert r["mode"] == "session_open", body
+
+
+def test_bang_exit_closes_session():
+    for body in ("!exit", "!q", "!EXIT", "!Q"):
+        r = dp.parse_passthrough(_make_prompt(body))
+        assert r is not None, body
+        assert r["mode"] == "session_close", body
+
+
+def test_exit_only_as_bare_word_not_as_command_prefix():
+    # `!exit-something` is a real command, not a session close.
+    r = dp.parse_passthrough(_make_prompt("!exitcode"))
+    assert r["mode"] == "bash"
+    assert r["cmd"] == "exitcode"
+
+
+# ---------------------------- live-terminal session --------------------------
+
+
+def test_append_scrollback_trims_and_marks_exit():
+    buf = dp._append_scrollback([], "echo hi", "hi", 0)
+    assert buf == ["$ echo hi", "hi"]
+    # non-zero exit appends an [exit N] marker after the (here empty) output line
+    buf2 = dp._append_scrollback(buf, "false", "", 3)
+    assert buf2[-1] == "[exit 3]"
+    assert "$ false" in buf2
+    # rolling window: never exceeds max_lines
+    big = dp._append_scrollback([f"line{i}" for i in range(100)], "x", "y", 0, max_lines=10)
+    assert len(big) == 10
+    assert big[-1] == "y"
+
+
+def test_render_screen_empty_and_fenced():
+    screen = dp._render_screen([])
+    assert screen.startswith("```") and screen.endswith("```")
+    assert "terminal ready" in screen
+    # a populated screen wraps the lines in one fence
+    s2 = dp._render_screen(["$ echo hi", "hi"])
+    assert s2 == "```\n$ echo hi\nhi\n```"
+
+
+def test_render_screen_respects_inline_limit():
+    huge = [f"line-{i}-{'x'*50}" for i in range(500)]
+    screen = dp._render_screen(huge)
+    assert len(screen) <= dp.INLINE_LIMIT
 
 
 # ---------------------------- parse: slash -----------------------------------

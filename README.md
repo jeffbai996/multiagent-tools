@@ -143,6 +143,7 @@ All env vars optional unless noted.
 | `CCDK_OWNER_ID_FILE` | `hooks/discord_passthrough.py` | override the owner_id file path. Default `~/.config/cc-discord-kit/owner_id`. |
 | `CCDK_COMMANDS_DIR` | `hooks/discord_passthrough.py` | where to find `/cmd` registry scripts. Default `<repo>/commands/`. |
 | `CCDK_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/cc-discord-kit/passthrough.log`. |
+| `CCDK_SESSION_STATE_FILE` | `hooks/discord_passthrough.py` | live-terminal session state (open pane's screen message + scrollback, per channel). Default `~/.cache/cc-discord-kit/passthrough_term.json`. |
 
 The env file at `~/.config/cc-discord-kit/env` is checked as a fallback for any of the above. Shell-style:
 
@@ -244,6 +245,8 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 ### Discord pass-through + slash dispatch
 
 - **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `CCDK_OWNER_DISCORD_USER_ID` or `~/.config/cc-discord-kit/owner_id`.
+
+  **Live-terminal mode.** Send a bare `!` to open a *terminal screen* — a single pinned Discord message that's PATCHed in place as you run commands, instead of a new reply per command. While the pane is open, each `!cmd` appends to a rolling scrollback (last 25 lines) rendered into that one message, so a channel reads like a real terminal. Close it with `!exit` (or `!q`) — the screen gets a final `Goodbye! 👋` frame. A pane left idle for 30 minutes auto-expires back to one-shot mode (so a forgotten session doesn't keep editing a message scrolled out of view). Session state lives in `CCDK_SESSION_STATE_FILE` (default `~/.cache/cc-discord-kit/passthrough_term.json`).
 
 ### Voice surfacing — narrate + tool-watcher
 
